@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Crime Car Coin Chase</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main class="game-shell">
+      <section class="topbar" aria-label="Статистика игры">
+        <div>
+          <span class="label">Богатство</span>
+          <strong id="score">0 / 0</strong>
+        </div>
+        <h1>Crime Car Coin Chase</h1>
+        <div>
+          <span class="label">Урон</span>
+          <strong id="damage">0 / 5</strong>
+        </div>
+      </section>
+
+      <section class="game-actions" aria-label="Управление игрой">
+        <button id="menuBtn" class="secondary-btn" type="button">Меню</button>
+        <button id="exitBtn" class="secondary-btn" type="button">Выход</button>
+      </section>
+
+      <section id="settingsPanel" class="settings-panel hidden" aria-label="Настройки цветов">
+        <label>
+          <span>Фон</span>
+          <input id="bgColor" type="color" value="#172844">
+        </label>
+        <label>
+          <span>Стены</span>
+          <input id="wallColor" type="color" value="#8f3d70">
+        </label>
+        <label>
+          <span>Машинка преступника</span>
+          <input id="playerColor" type="color" value="#d93636">
+        </label>
+        <label>
+          <span>Полицейские машины</span>
+          <input id="policeColor" type="color" value="#2f7de1">
+        </label>
+        <section class="history-panel" aria-label="История побед">
+          <div class="history-title">
+            <h2>История побед</h2>
+            <span id="versionLabel">v1</span>
+          </div>
+          <ol id="winsList" class="wins-list">
+            <li>Побед пока нет</li>
+          </ol>
+        </section>
+      </section>
+
+      <section class="board-wrap" aria-label="Игровое поле">
+        <canvas id="game" width="720" height="630" aria-label="Лабиринт с машинками и монетками"></canvas>
+        <div id="overlay" class="overlay">
+          <div class="overlay-panel">
+            <p id="overlayKicker">Готов к погоне?</p>
+            <h2 id="overlayTitle">Собери все монетки</h2>
+            <p id="overlayText">Управляй машинкой преступников стрелками клавиатуры. Полиция наносит урон при столкновении.</p>
+            <fieldset class="difficulty" aria-label="Уровень сложности">
+              <legend>Уровень</legend>
+              <label>
+                <input type="radio" name="difficulty" value="debut">
+                <span>Дебют</span>
+              </label>
+              <label>
+                <input type="radio" name="difficulty" value="beginner" checked>
+                <span>Начинающий</span>
+              </label>
+              <label>
+                <input type="radio" name="difficulty" value="amateur">
+                <span>Любитель</span>
+              </label>
+              <label>
+                <input type="radio" name="difficulty" value="pro">
+                <span>Профессионал</span>
+              </label>
+            </fieldset>
+            <button id="startBtn" type="button">Старт</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="controls" aria-label="Экранные стрелки">
+        <button class="control-btn up" type="button" data-dir="up" aria-label="Вверх">▲</button>
+        <button class="control-btn left" type="button" data-dir="left" aria-label="Влево">◀</button>
+        <button class="control-btn down" type="button" data-dir="down" aria-label="Вниз">▼</button>
+        <button class="control-btn right" type="button" data-dir="right" aria-label="Вправо">▶</button>
+      </section>
+
+      <button id="restartBtn" class="restart" type="button">Начать заново</button>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
