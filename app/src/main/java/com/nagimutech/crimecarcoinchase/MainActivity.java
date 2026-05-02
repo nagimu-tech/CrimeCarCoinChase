@@ -3,7 +3,10 @@ package com.nagimutech.crimecarcoinchase;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -76,6 +79,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
     @Override
     public void onWin(int rating, int seconds, int damage) {
         saveWin(new WinRecord(rating, difficulty.label, seconds, damage));
+        showWinDialog(rating, seconds, damage);
     }
 
     @Override
@@ -284,5 +288,82 @@ public final class MainActivity extends Activity implements GameView.Listener {
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void showWinDialog(int rating, int seconds, int damage) {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(18), dp(14), dp(18), dp(12));
+
+        WinCelebrationView celebration = new WinCelebrationView(this);
+        panel.addView(celebration, new LinearLayout.LayoutParams(-1, dp(170)));
+
+        TextView title = panelText("\u041f\u043e\u0431\u0435\u0434\u0430!");
+        title.setTextSize(24f);
+        title.setGravity(Gravity.CENTER);
+        title.setTypeface(null, 1);
+        panel.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView details = panelText("\u0420\u0435\u0439\u0442\u0438\u043d\u0433: " + rating
+                + "\n\u0412\u0440\u0435\u043c\u044f: " + formatTime(seconds)
+                + "\n\u0423\u0440\u043e\u043d: " + damage + "/" + GameConfig.MAX_DAMAGE);
+        details.setGravity(Gravity.CENTER);
+        panel.addView(details, new LinearLayout.LayoutParams(-1, -2));
+
+        Button restart = new Button(this);
+        restart.setAllCaps(false);
+        restart.setText("\u041d\u043e\u0432\u044b\u0439 \u0437\u0430\u0435\u0437\u0434");
+        panel.addView(restart, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(panel)
+                .create();
+        restart.setOnClickListener(v -> {
+            gameView.start(difficulty);
+            dialog.dismiss();
+        });
+        dialog.show();
+    }
+
+    private static final class WinCelebrationView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        WinCelebrationView(Activity activity) {
+            super(activity);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float w = getWidth();
+            float h = getHeight();
+            long now = System.currentTimeMillis();
+            canvas.drawColor(Color.rgb(20, 34, 58));
+
+            paint.setStyle(Paint.Style.FILL);
+            for (int i = 0; i < 14; i++) {
+                float x = (i * 47f + (now % 1400) * 0.04f) % Math.max(1f, w);
+                float y = 18f + (float) Math.sin(now / 220.0 + i) * 10f + (i % 4) * 28f;
+                paint.setColor(i % 2 == 0 ? Color.rgb(250, 210, 70) : Color.rgb(120, 235, 255));
+                canvas.drawCircle(x, y, 7f + (i % 3), paint);
+            }
+
+            float carX = w * 0.5f + (float) Math.sin(now / 260.0) * w * 0.22f;
+            float carY = h * 0.62f;
+            paint.setColor(Color.argb(90, 0, 0, 0));
+            canvas.drawOval(new RectF(carX - 54f, carY + 28f, carX + 54f, carY + 42f), paint);
+            paint.setColor(Color.rgb(210, 38, 52));
+            canvas.drawRoundRect(new RectF(carX - 48f, carY - 24f, carX + 48f, carY + 26f), 14f, 14f, paint);
+            paint.setColor(Color.rgb(20, 28, 38));
+            canvas.drawRoundRect(new RectF(carX - 20f, carY - 18f, carX + 24f, carY + 7f), 8f, 8f, paint);
+            paint.setColor(Color.rgb(255, 229, 120));
+            canvas.drawRect(carX + 30f, carY - 16f, carX + 45f, carY - 5f, paint);
+            canvas.drawRect(carX + 30f, carY + 8f, carX + 45f, carY + 19f, paint);
+            paint.setColor(Color.rgb(28, 24, 28));
+            canvas.drawRoundRect(new RectF(carX - 42f, carY - 34f, carX - 18f, carY + 36f), 10f, 10f, paint);
+            canvas.drawRoundRect(new RectF(carX + 18f, carY - 34f, carX + 42f, carY + 36f), 10f, 10f, paint);
+
+            postInvalidateOnAnimation();
+        }
     }
 }
