@@ -33,7 +33,7 @@ final class GameView extends View {
     private static final int COIN_VALUE = 1;
     private static final int DIAMOND_VALUE = 10;
     private static final int DIAMOND_COUNT = 8;
-    private static final float PLAYER_SPEED = 0.7f;
+    private static final float PLAYER_SPEED = 1.2f;
     private static final long INVULNERABLE_MS = 1200L;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -170,12 +170,16 @@ final class GameView extends View {
 
         if (event.getAction() == MotionEvent.ACTION_MOVE && gestureActive) {
             updateGestureDirection(x, y);
+            if (playing && !paused) {
+                postInvalidateOnAnimation();
+            }
             return true;
         }
 
         if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
             gestureActive = false;
             setGestureDirection(Direction.NONE);
+            invalidate();
             return true;
         }
 
@@ -205,6 +209,7 @@ final class GameView extends View {
         player.nextDir = direction;
         if (direction == Direction.NONE) {
             player.dir = Direction.NONE;
+            player.nextDir = Direction.NONE;
             player.stopAtCenter = false;
         } else {
             player.stopAtCenter = false;
@@ -500,9 +505,11 @@ final class GameView extends View {
     }
 
     private void drawGame(Canvas canvas) {
-        float tile = Math.max(getWidth() / (float) GameConfig.MAP_WIDTH, getHeight() / (float) GameConfig.MAP_HEIGHT);
+        float topBarHeight = topBarHeight();
+        float playHeight = Math.max(1f, getHeight() - topBarHeight);
+        float tile = Math.min(getWidth() / (float) GameConfig.MAP_WIDTH, playHeight / (float) GameConfig.MAP_HEIGHT);
         float originX = (getWidth() - tile * GameConfig.MAP_WIDTH) / 2f;
-        float originY = (getHeight() - tile * GameConfig.MAP_HEIGHT) / 2f;
+        float originY = topBarHeight + (playHeight - tile * GameConfig.MAP_HEIGHT) / 2f;
         canvas.drawColor(colors.background);
 
         for (int y = 0; y < GameConfig.MAP_HEIGHT; y++) {
@@ -535,14 +542,22 @@ final class GameView extends View {
         }
     }
 
+    private float topBarHeight() {
+        return 76f * density;
+    }
+
     private void drawOverlay(Canvas canvas) {
-        float safeTop = 12f * density;
+        float barHeight = topBarHeight();
+        float safeTop = 8f * density;
         float button = 48f * density;
         float margin = 12f * density;
-        menuRect.set(getWidth() - margin - button, safeTop, getWidth() - margin, safeTop + button);
+        menuRect.set(getWidth() - margin - button, safeTop + 6f * density, getWidth() - margin, safeTop + 6f * density + button);
 
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.argb(115, 0, 0, 0));
+        paint.setColor(Color.argb(178, 0, 0, 0));
+        canvas.drawRect(0f, 0f, getWidth(), barHeight, paint);
+
+        paint.setColor(Color.argb(130, 0, 0, 0));
         canvas.drawRoundRect(menuRect, 18f * density, 18f * density, paint);
 
         paint.setColor(Color.WHITE);
@@ -556,20 +571,17 @@ final class GameView extends View {
 
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.argb(120, 0, 0, 0));
-        canvas.drawRoundRect(new RectF(8f * density, safeTop + button + 6f * density, getWidth() - 8f * density, safeTop + button + 38f * density), 12f * density, 12f * density, paint);
         paint.setColor(Color.argb(230, 255, 255, 255));
-        paint.setTextSize(16f * density);
+        paint.setTextSize(15f * density);
         paint.setFakeBoldText(true);
-        canvas.drawText("Богатство: " + scoreCollected + " / " + scoreTotal, margin, safeTop + button + 24f * density, paint);
-        canvas.drawText("Урон: " + damage + " / " + GameConfig.MAX_DAMAGE, getWidth() * 0.56f, safeTop + button + 24f * density, paint);
+        canvas.drawText("Богатство: " + scoreCollected + " / " + scoreTotal, margin, 32f * density, paint);
+        canvas.drawText("Урон: " + damage + " / " + GameConfig.MAX_DAMAGE, margin, 58f * density, paint);
 
         if (!playing || roundOver) {
-            paint.setTextAlign(Paint.Align.CENTER);
             paint.setColor(Color.argb(235, 245, 200, 75));
-            paint.setTextSize(18f * density);
-            String text = roundOver ? "Коснись экрана, чтобы начать новый заезд" : "Коснись экрана и веди палец для движения";
-            canvas.drawText(text, getWidth() / 2f, getHeight() - 26f * density, paint);
+            paint.setTextSize(12f * density);
+            String text = roundOver ? "Коснись поля для нового заезда" : "Коснись поля и веди палец";
+            canvas.drawText(text, getWidth() * 0.38f, 58f * density, paint);
         } else if (paused) {
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setColor(Color.argb(210, 255, 255, 255));
