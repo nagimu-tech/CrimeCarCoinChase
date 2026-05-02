@@ -1,10 +1,10 @@
 package com.nagimutech.crimecarcoinchase;
 
 enum Difficulty {
-    DEBUT("Дебют", 1, 1.65f, 0.8f),
-    BEGINNER("Начинающий", 1, 2.45f, 1.0f),
-    AMATEUR("Любитель", 2, 2.45f, 1.35f),
-    PRO("Профессионал", 3, 2.45f, 1.7f);
+    DEBUT("Дебют", 1, 0.75f, 0.8f),
+    BEGINNER("Начинающий", 1, 1.0f, 1.0f),
+    AMATEUR("Любитель", 2, 1.05f, 1.35f),
+    PRO("Профессионал", 3, 1.1f, 1.7f);
 
     final String label;
     final int policeCount;

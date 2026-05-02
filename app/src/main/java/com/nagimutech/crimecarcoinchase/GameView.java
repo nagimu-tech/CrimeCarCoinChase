@@ -9,6 +9,7 @@ import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.os.SystemClock;
+import android.view.MotionEvent;
 import android.view.View;
 
 import java.util.ArrayList;
@@ -22,6 +23,8 @@ final class GameView extends View {
         void onHudChanged(int score, int total, int damage);
         void onWin(int rating, int seconds, int damage);
         void onLose();
+        void onMenuRequested();
+        void onExitRequested();
     }
 
     private static final int WALL = 0;
@@ -31,13 +34,14 @@ final class GameView extends View {
     private static final int COIN_VALUE = 1;
     private static final int DIAMOND_VALUE = 10;
     private static final int DIAMOND_COUNT = 8;
-    private static final float PLAYER_SPEED = 3.4f;
+    private static final float PLAYER_SPEED = 1.35f;
     private static final long INVULNERABLE_MS = 1200L;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Random random = new Random();
     private final GameColors colors;
     private final Listener listener;
+    private final float density;
 
     private int[][] grid = new int[GameConfig.MAP_HEIGHT][GameConfig.MAP_WIDTH];
     private final List<Cell> policeStarts = new ArrayList<>();
@@ -50,14 +54,22 @@ final class GameView extends View {
     private int damage;
     private long startedAt;
     private long lastFrameAt;
+    private long pausedAt;
+    private boolean paused;
     private boolean playing;
+    private boolean roundOver;
+    private boolean gestureActive;
+    private float gestureStartX;
+    private float gestureStartY;
+    private RectF exitRect = new RectF();
+    private RectF menuRect = new RectF();
 
     GameView(Context context, GameColors colors, Listener listener) {
         super(context);
         this.colors = colors;
         this.listener = listener;
+        density = getResources().getDisplayMetrics().density;
         setFocusable(true);
-        setMinimumHeight(320);
         reset(Difficulty.BEGINNER, false);
     }
 
@@ -68,7 +80,11 @@ final class GameView extends View {
         scoreCollected = 0;
         damage = 0;
         playing = startPlaying;
+        paused = false;
+        roundOver = false;
+        gestureActive = false;
         startedAt = startPlaying ? SystemClock.uptimeMillis() : 0L;
+        pausedAt = 0L;
         lastFrameAt = 0L;
         generateMap();
         placeDiamonds();
@@ -89,16 +105,28 @@ final class GameView extends View {
             player.nextDir = Direction.NONE;
             player.stopAtCenter = false;
         }
+        roundOver = true;
         invalidate();
     }
 
-    void setHeldDirection(Direction direction) {
-        heldDirection = direction;
-        if (player == null) {
-            return;
+    void pauseForMenu() {
+        if (!paused) {
+            paused = true;
+            pausedAt = SystemClock.uptimeMillis();
         }
-        player.nextDir = direction;
-        player.stopAtCenter = direction == Direction.NONE;
+        invalidate();
+    }
+
+    void resumeFromMenu() {
+        if (paused) {
+            if (startedAt > 0L) {
+                startedAt += SystemClock.uptimeMillis() - pausedAt;
+            }
+            paused = false;
+            pausedAt = 0L;
+            lastFrameAt = 0L;
+        }
+        invalidate();
     }
 
     boolean isPlaying() {
@@ -109,16 +137,79 @@ final class GameView extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         long now = SystemClock.uptimeMillis();
-        if (playing) {
+        if (playing && !paused) {
             float delta = lastFrameAt == 0L ? 16.67f : Math.min(34f, now - lastFrameAt);
             update(delta, now);
         }
         lastFrameAt = now;
 
         drawGame(canvas);
-        if (playing) {
+        drawOverlay(canvas);
+        if (playing && !paused) {
             postInvalidateOnAnimation();
         }
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        float x = event.getX();
+        float y = event.getY();
+
+        if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            if (exitRect.contains(x, y)) {
+                listener.onExitRequested();
+                return true;
+            }
+            if (menuRect.contains(x, y)) {
+                listener.onMenuRequested();
+                return true;
+            }
+            if (!playing || roundOver) {
+                start(difficulty);
+            }
+            gestureActive = true;
+            gestureStartX = x;
+            gestureStartY = y;
+            setGestureDirection(Direction.NONE);
+            return true;
+        }
+
+        if (event.getAction() == MotionEvent.ACTION_MOVE && gestureActive) {
+            updateGestureDirection(x, y);
+            return true;
+        }
+
+        if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+            gestureActive = false;
+            setGestureDirection(Direction.NONE);
+            return true;
+        }
+
+        return true;
+    }
+
+    private void updateGestureDirection(float x, float y) {
+        float dx = x - gestureStartX;
+        float dy = y - gestureStartY;
+        float deadZone = 24f * density;
+        if (Math.hypot(dx, dy) < deadZone) {
+            setGestureDirection(Direction.NONE);
+            return;
+        }
+        if (Math.abs(dx) > Math.abs(dy)) {
+            setGestureDirection(dx > 0 ? Direction.RIGHT : Direction.LEFT);
+        } else {
+            setGestureDirection(dy > 0 ? Direction.DOWN : Direction.UP);
+        }
+    }
+
+    private void setGestureDirection(Direction direction) {
+        heldDirection = direction;
+        if (player == null) {
+            return;
+        }
+        player.nextDir = direction;
+        player.stopAtCenter = direction == Direction.NONE;
     }
 
     private void update(float delta, long now) {
@@ -367,6 +458,7 @@ final class GameView extends View {
             listener.onHudChanged(scoreCollected, scoreTotal, damage);
             if (scoreCollected == scoreTotal) {
                 playing = false;
+                roundOver = true;
                 int seconds = Math.max(1, Math.round((SystemClock.uptimeMillis() - startedAt) / 1000f));
                 int rating = calculateRating(seconds);
                 listener.onWin(rating, seconds, damage);
@@ -403,6 +495,7 @@ final class GameView extends View {
         listener.onHudChanged(scoreCollected, scoreTotal, damage);
         if (damage >= GameConfig.MAX_DAMAGE) {
             playing = false;
+            roundOver = true;
             listener.onLose();
         }
     }
@@ -440,6 +533,61 @@ final class GameView extends View {
         if (!blink) {
             drawCar(canvas, player, colors.player, Color.rgb(243, 176, 71), tile, originX, originY, true);
         }
+    }
+
+    private void drawOverlay(Canvas canvas) {
+        float safeTop = 12f * density;
+        float button = 48f * density;
+        float margin = 12f * density;
+        exitRect.set(margin, safeTop, margin + button, safeTop + button);
+        menuRect.set(getWidth() - margin - button, safeTop, getWidth() - margin, safeTop + button);
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(115, 0, 0, 0));
+        canvas.drawRoundRect(exitRect, 18f * density, 18f * density, paint);
+        canvas.drawRoundRect(menuRect, 18f * density, 18f * density, paint);
+
+        paint.setColor(Color.WHITE);
+        paint.setStrokeWidth(4f * density);
+        paint.setStyle(Paint.Style.STROKE);
+        float cy = exitRect.centerY();
+        float cx = exitRect.centerX();
+        Path back = new Path();
+        back.moveTo(cx + 8f * density, cy - 12f * density);
+        back.lineTo(cx - 8f * density, cy);
+        back.lineTo(cx + 8f * density, cy + 12f * density);
+        canvas.drawPath(back, paint);
+
+        paint.setStyle(Paint.Style.FILL);
+        float lineLeft = menuRect.left + 13f * density;
+        float lineRight = menuRect.right - 13f * density;
+        for (int i = -1; i <= 1; i++) {
+            float ly = menuRect.centerY() + i * 9f * density;
+            canvas.drawRoundRect(new RectF(lineLeft, ly - 2f * density, lineRight, ly + 2f * density), 3f * density, 3f * density, paint);
+        }
+
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(230, 255, 255, 255));
+        paint.setTextSize(16f * density);
+        paint.setFakeBoldText(true);
+        canvas.drawText("Богатство: " + scoreCollected + " / " + scoreTotal, margin, safeTop + button + 24f * density, paint);
+        canvas.drawText("Урон: " + damage + " / " + GameConfig.MAX_DAMAGE, getWidth() * 0.56f, safeTop + button + 24f * density, paint);
+
+        if (!playing || roundOver) {
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setColor(Color.argb(235, 245, 200, 75));
+            paint.setTextSize(18f * density);
+            String text = roundOver ? "Коснись экрана, чтобы начать новый заезд" : "Коснись экрана и веди палец для движения";
+            canvas.drawText(text, getWidth() / 2f, getHeight() - 26f * density, paint);
+        } else if (paused) {
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setColor(Color.argb(210, 255, 255, 255));
+            paint.setTextSize(20f * density);
+            canvas.drawText("Пауза", getWidth() / 2f, getHeight() / 2f, paint);
+        }
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
     }
 
     private void drawCoin(Canvas canvas, float x, float y, float tile) {
