@@ -24,7 +24,6 @@ final class GameView extends View {
         void onWin(int rating, int seconds, int damage);
         void onLose();
         void onMenuRequested();
-        void onExitRequested();
     }
 
     private static final int WALL = 0;
@@ -34,7 +33,7 @@ final class GameView extends View {
     private static final int COIN_VALUE = 1;
     private static final int DIAMOND_VALUE = 10;
     private static final int DIAMOND_COUNT = 8;
-    private static final float PLAYER_SPEED = 1.35f;
+    private static final float PLAYER_SPEED = 0.42f;
     private static final long INVULNERABLE_MS = 1200L;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -61,7 +60,6 @@ final class GameView extends View {
     private boolean gestureActive;
     private float gestureStartX;
     private float gestureStartY;
-    private RectF exitRect = new RectF();
     private RectF menuRect = new RectF();
 
     GameView(Context context, GameColors colors, Listener listener) {
@@ -156,10 +154,6 @@ final class GameView extends View {
         float y = event.getY();
 
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
-            if (exitRect.contains(x, y)) {
-                listener.onExitRequested();
-                return true;
-            }
             if (menuRect.contains(x, y)) {
                 listener.onMenuRequested();
                 return true;
@@ -512,7 +506,8 @@ final class GameView extends View {
                 float py = originY + y * tile;
                 if (grid[y][x] == WALL) {
                     paint.setShader(new LinearGradient(px, py, px, py + tile, colors.lighten(colors.wall, 52), colors.wall, Shader.TileMode.CLAMP));
-                    canvas.drawRect(px + 1, py + 1, px + tile - 1, py + tile - 1, paint);
+                    float inset = Math.max(0.5f, tile * 0.025f);
+                    canvas.drawRect(px + inset, py + inset, px + tile - inset, py + tile - inset, paint);
                     paint.setShader(null);
                 } else {
                     paint.setColor(colors.road);
@@ -539,25 +534,13 @@ final class GameView extends View {
         float safeTop = 12f * density;
         float button = 48f * density;
         float margin = 12f * density;
-        exitRect.set(margin, safeTop, margin + button, safeTop + button);
         menuRect.set(getWidth() - margin - button, safeTop, getWidth() - margin, safeTop + button);
 
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.argb(115, 0, 0, 0));
-        canvas.drawRoundRect(exitRect, 18f * density, 18f * density, paint);
         canvas.drawRoundRect(menuRect, 18f * density, 18f * density, paint);
 
         paint.setColor(Color.WHITE);
-        paint.setStrokeWidth(4f * density);
-        paint.setStyle(Paint.Style.STROKE);
-        float cy = exitRect.centerY();
-        float cx = exitRect.centerX();
-        Path back = new Path();
-        back.moveTo(cx + 8f * density, cy - 12f * density);
-        back.lineTo(cx - 8f * density, cy);
-        back.lineTo(cx + 8f * density, cy + 12f * density);
-        canvas.drawPath(back, paint);
-
         paint.setStyle(Paint.Style.FILL);
         float lineLeft = menuRect.left + 13f * density;
         float lineRight = menuRect.right - 13f * density;

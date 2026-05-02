@@ -89,11 +89,6 @@ public final class MainActivity extends Activity implements GameView.Listener {
         showGameMenu();
     }
 
-    @Override
-    public void onExitRequested() {
-        gameView.exitToMenu();
-    }
-
     private void showGameMenu() {
         ScrollView scroll = new ScrollView(this);
         LinearLayout panel = new LinearLayout(this);
