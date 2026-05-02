@@ -212,8 +212,23 @@ final class GameView extends View {
             player.nextDir = Direction.NONE;
             player.stopAtCenter = false;
         } else {
+            if (player.dir == Direction.NONE && canResumeFromStop(player, direction)) {
+                player.dir = direction;
+            }
             player.stopAtCenter = false;
         }
+    }
+
+    private boolean canResumeFromStop(Car car, Direction direction) {
+        float centerX = Math.round(car.x - 0.5f) + 0.5f;
+        float centerY = Math.round(car.y - 0.5f) + 0.5f;
+        if (direction.dx != 0 && Math.abs(car.y - centerY) > 0.003f) {
+            return false;
+        }
+        if (direction.dy != 0 && Math.abs(car.x - centerX) > 0.003f) {
+            return false;
+        }
+        return canMove(car, direction);
     }
 
     private void update(float delta, long now) {
@@ -437,20 +452,35 @@ final class GameView extends View {
             }
         }
 
+        float oldX = car.x;
+        float oldY = car.y;
         car.x += car.dir.dx * step;
         car.y += car.dir.dy * step;
-        Cell cell = toCell(car);
-        float targetX = cell.x + 0.5f;
-        float targetY = cell.y + 0.5f;
-        if (car.dir.dx != 0 && Math.abs(car.x - targetX) < step) {
-            car.x = targetX;
+
+        if (car.dir.dx != 0) {
+            float targetX = nextCenter(oldX, car.dir.dx);
+            if ((car.dir.dx > 0 && oldX <= targetX && car.x >= targetX)
+                    || (car.dir.dx < 0 && oldX >= targetX && car.x <= targetX)) {
+                car.x = targetX;
+            }
         }
-        if (car.dir.dy != 0 && Math.abs(car.y - targetY) < step) {
-            car.y = targetY;
+        if (car.dir.dy != 0) {
+            float targetY = nextCenter(oldY, car.dir.dy);
+            if ((car.dir.dy > 0 && oldY <= targetY && car.y >= targetY)
+                    || (car.dir.dy < 0 && oldY >= targetY && car.y <= targetY)) {
+                car.y = targetY;
+            }
         }
         if (car.dir != Direction.NONE) {
             car.angle = (float) Math.atan2(car.dir.dy, car.dir.dx);
         }
+    }
+
+    private float nextCenter(float position, int axisDirection) {
+        if (axisDirection > 0) {
+            return (float) Math.floor(position + 0.5f) + 0.5f;
+        }
+        return (float) Math.ceil(position - 0.5f) - 0.5f;
     }
 
     private void collectItem() {
@@ -659,8 +689,8 @@ final class GameView extends View {
     }
 
     private boolean atCenter(Car car) {
-        return Math.abs(car.x - (Math.round(car.x - 0.5f) + 0.5f)) < 0.04f
-                && Math.abs(car.y - (Math.round(car.y - 0.5f) + 0.5f)) < 0.04f;
+        return Math.abs(car.x - (Math.round(car.x - 0.5f) + 0.5f)) < 0.003f
+                && Math.abs(car.y - (Math.round(car.y - 0.5f) + 0.5f)) < 0.003f;
     }
 
     private void snap(Car car) {
