@@ -47,7 +47,9 @@ final class GameView extends View {
     private final Listener listener;
     private final float density;
 
-    private int[][] grid = new int[GameConfig.MAP_HEIGHT][GameConfig.MAP_WIDTH];
+    private int[][] grid;
+    private int mapWidth;
+    private int mapHeight;
     private final List<Cell> policeStarts = new ArrayList<>();
     private final List<Car> policeCars = new ArrayList<>();
     private Car player;
@@ -85,6 +87,7 @@ final class GameView extends View {
 
     void reset(Difficulty newDifficulty, boolean startPlaying) {
         difficulty = newDifficulty;
+        configureMapSize();
         heldDirection = Direction.NONE;
         scoreTotal = 0;
         scoreCollected = 0;
@@ -103,11 +106,25 @@ final class GameView extends View {
         freezeUntil = 0L;
         shieldUntil = 0L;
         ghostUntil = 0L;
+        grid = new int[mapHeight][mapWidth];
         generateMap();
         placeDiamonds();
         createPoliceCars();
         listener.onHudChanged(scoreCollected, scoreTotal, damage);
         invalidate();
+    }
+
+    private void configureMapSize() {
+        if (difficulty == Difficulty.DEBUT) {
+            mapWidth = 13;
+            mapHeight = 21;
+        } else if (difficulty == Difficulty.BEGINNER) {
+            mapWidth = 15;
+            mapHeight = 25;
+        } else {
+            mapWidth = GameConfig.MAP_WIDTH;
+            mapHeight = GameConfig.MAP_HEIGHT;
+        }
     }
 
     void start(Difficulty newDifficulty) {
@@ -288,12 +305,12 @@ final class GameView extends View {
     private void spawnArtifact(long now) {
         ArrayList<Cell> candidates = new ArrayList<>();
         Cell playerCell = toCell(player);
-        boolean right = playerCell.x >= GameConfig.MAP_WIDTH / 2;
-        boolean bottom = playerCell.y >= GameConfig.MAP_HEIGHT / 2;
-        int minX = right ? GameConfig.MAP_WIDTH / 2 : 1;
-        int maxX = right ? GameConfig.MAP_WIDTH - 2 : GameConfig.MAP_WIDTH / 2;
-        int minY = bottom ? GameConfig.MAP_HEIGHT / 2 : 1;
-        int maxY = bottom ? GameConfig.MAP_HEIGHT - 2 : GameConfig.MAP_HEIGHT / 2;
+        boolean right = playerCell.x >= mapWidth / 2;
+        boolean bottom = playerCell.y >= mapHeight / 2;
+        int minX = right ? mapWidth / 2 : 1;
+        int maxX = right ? mapWidth - 2 : mapWidth / 2;
+        int minY = bottom ? mapHeight / 2 : 1;
+        int maxY = bottom ? mapHeight - 2 : mapHeight / 2;
         for (int y = minY; y <= maxY; y++) {
             for (int x = minX; x <= maxX; x++) {
                 Cell cell = new Cell(x, y);
@@ -319,14 +336,14 @@ final class GameView extends View {
 
     private void generateMap() {
         policeStarts.clear();
-        for (int y = 0; y < GameConfig.MAP_HEIGHT; y++) {
-            for (int x = 0; x < GameConfig.MAP_WIDTH; x++) {
+        for (int y = 0; y < mapHeight; y++) {
+            for (int x = 0; x < mapWidth; x++) {
                 grid[y][x] = WALL;
             }
         }
 
         ArrayList<Cell> stack = new ArrayList<>();
-        boolean[][] visited = new boolean[GameConfig.MAP_HEIGHT][GameConfig.MAP_WIDTH];
+        boolean[][] visited = new boolean[mapHeight][mapWidth];
         stack.add(new Cell(1, 1));
         visited[1][1] = true;
         grid[1][1] = COIN;
@@ -358,15 +375,15 @@ final class GameView extends View {
     }
 
     private void addMazeNeighbor(List<Cell> neighbors, boolean[][] visited, int x, int y) {
-        if (x > 0 && x < GameConfig.MAP_WIDTH - 1 && y > 0 && y < GameConfig.MAP_HEIGHT - 1 && !visited[y][x]) {
+        if (x > 0 && x < mapWidth - 1 && y > 0 && y < mapHeight - 1 && !visited[y][x]) {
             neighbors.add(new Cell(x, y));
         }
     }
 
     private void addExtraPassages() {
         ArrayList<Cell> candidates = new ArrayList<>();
-        for (int y = 1; y < GameConfig.MAP_HEIGHT - 1; y++) {
-            for (int x = 1; x < GameConfig.MAP_WIDTH - 1; x++) {
+        for (int y = 1; y < mapHeight - 1; y++) {
+            for (int x = 1; x < mapWidth - 1; x++) {
                 if (grid[y][x] != WALL) {
                     continue;
                 }
@@ -386,24 +403,24 @@ final class GameView extends View {
 
     private void addSideTunnels() {
         addTunnelRow(5);
-        addTunnelRow(GameConfig.MAP_HEIGHT - 6);
+        addTunnelRow(mapHeight - 6);
     }
 
     private void addTunnelRow(int y) {
         grid[y][0] = EMPTY;
-        grid[y][GameConfig.MAP_WIDTH - 1] = EMPTY;
+        grid[y][mapWidth - 1] = EMPTY;
         if (grid[y][1] == WALL) {
             grid[y][1] = COIN;
         }
-        if (grid[y][GameConfig.MAP_WIDTH - 2] == WALL) {
-            grid[y][GameConfig.MAP_WIDTH - 2] = COIN;
+        if (grid[y][mapWidth - 2] == WALL) {
+            grid[y][mapWidth - 2] = COIN;
         }
     }
 
     private void placeMarkers() {
         ArrayList<Cell> open = new ArrayList<>();
-        for (int y = 1; y < GameConfig.MAP_HEIGHT - 1; y++) {
-            for (int x = 1; x < GameConfig.MAP_WIDTH - 1; x++) {
+        for (int y = 1; y < mapHeight - 1; y++) {
+            for (int x = 1; x < mapWidth - 1; x++) {
                 if (grid[y][x] != WALL) {
                     open.add(new Cell(x, y));
                     if (grid[y][x] == COIN) {
@@ -465,8 +482,8 @@ final class GameView extends View {
 
     private void placeDiamonds() {
         ArrayList<Cell> coins = new ArrayList<>();
-        for (int y = 1; y < GameConfig.MAP_HEIGHT - 1; y++) {
-            for (int x = 1; x < GameConfig.MAP_WIDTH - 1; x++) {
+        for (int y = 1; y < mapHeight - 1; y++) {
+            for (int x = 1; x < mapWidth - 1; x++) {
                 if (grid[y][x] == COIN) {
                     coins.add(new Cell(x, y));
                 }
@@ -493,6 +510,9 @@ final class GameView extends View {
         }
         for (Car car : policeCars) {
             car.decisionDelay -= delta;
+            if (car.dir == Direction.NONE && !atCenter(car)) {
+                recoverStoppedPolice(car);
+            }
             if (atCenter(car)) {
                 snap(car);
                 if (car.dir == Direction.NONE || car.decisionDelay <= 0 || !canMove(car, car.dir)) {
@@ -537,6 +557,31 @@ final class GameView extends View {
             }
         }
         car.dir = best.get(random.nextInt(best.size()));
+    }
+
+    private void recoverStoppedPolice(Car car) {
+        snapToNearestOpenCell(car);
+        choosePoliceDirection(car);
+        car.decisionDelay = 40f + random.nextFloat() * 80f;
+    }
+
+    private void snapToNearestOpenCell(Car car) {
+        Cell cell = toCell(car);
+        int x = Math.max(0, Math.min(mapWidth - 1, cell.x));
+        int y = Math.max(0, Math.min(mapHeight - 1, cell.y));
+        if (grid[y][x] == WALL) {
+            for (Direction direction : new Direction[]{Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT}) {
+                int nx = x + direction.dx;
+                int ny = y + direction.dy;
+                if (nx >= 0 && ny >= 0 && nx < mapWidth && ny < mapHeight && grid[ny][nx] != WALL) {
+                    x = nx;
+                    y = ny;
+                    break;
+                }
+            }
+        }
+        car.x = x + 0.5f;
+        car.y = y + 0.5f;
     }
 
     private void move(Car car, float speed, float delta) {
@@ -586,8 +631,8 @@ final class GameView extends View {
             return;
         }
         if (car.x < 0.5f) {
-            car.x = GameConfig.MAP_WIDTH - 0.5f;
-        } else if (car.x > GameConfig.MAP_WIDTH - 0.5f) {
+            car.x = mapWidth - 0.5f;
+        } else if (car.x > mapWidth - 0.5f) {
             car.x = 0.5f;
         }
     }
@@ -659,7 +704,11 @@ final class GameView extends View {
         player.invulnerableUntil = now + INVULNERABLE_MS;
         for (Car car : hits) {
             Direction reverse = car.dir.reverse();
-            car.dir = canMove(car, reverse) ? reverse : Direction.NONE;
+            if (canMove(car, reverse)) {
+                car.dir = reverse;
+            } else {
+                recoverStoppedPolice(car);
+            }
             car.decisionDelay = 0f;
         }
         listener.onHudChanged(scoreCollected, scoreTotal, damage);
@@ -673,13 +722,13 @@ final class GameView extends View {
     private void drawGame(Canvas canvas) {
         float topBarHeight = topBarHeight();
         float playHeight = Math.max(1f, getHeight() - topBarHeight);
-        float tile = Math.min(getWidth() / (float) GameConfig.MAP_WIDTH, playHeight / (float) GameConfig.MAP_HEIGHT);
-        float originX = (getWidth() - tile * GameConfig.MAP_WIDTH) / 2f;
-        float originY = topBarHeight + (playHeight - tile * GameConfig.MAP_HEIGHT) / 2f;
+        float tile = Math.min(getWidth() / (float) mapWidth, playHeight / (float) mapHeight);
+        float originX = (getWidth() - tile * mapWidth) / 2f;
+        float originY = topBarHeight + (playHeight - tile * mapHeight) / 2f;
         canvas.drawColor(colors.background);
 
-        for (int y = 0; y < GameConfig.MAP_HEIGHT; y++) {
-            for (int x = 0; x < GameConfig.MAP_WIDTH; x++) {
+        for (int y = 0; y < mapHeight; y++) {
+            for (int x = 0; x < mapWidth; x++) {
                 float px = originX + x * tile;
                 float py = originY + y * tile;
                 if (grid[y][x] == WALL) {
@@ -841,6 +890,15 @@ final class GameView extends View {
         paint.setColor(body);
         RectF carRect = new RectF(-tile * 0.36f, -tile * 0.24f, tile * 0.36f, tile * 0.24f);
         canvas.drawRoundRect(carRect, 6f, 6f, paint);
+        if (isPlayer && SystemClock.uptimeMillis() < shieldUntil) {
+            float pulse = 0.65f + 0.35f * (float) Math.sin(SystemClock.uptimeMillis() / 150.0);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(3f, tile * (0.08f + 0.04f * pulse)));
+            paint.setColor(Color.argb(170, 120, 245, 145));
+            RectF shield = new RectF(carRect.left - tile * 0.08f, carRect.top - tile * 0.08f, carRect.right + tile * 0.08f, carRect.bottom + tile * 0.08f);
+            canvas.drawRoundRect(shield, 8f, 8f, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
         paint.setColor(Color.rgb(16, 20, 27));
         canvas.drawRect(-tile * 0.12f, -tile * 0.22f, tile * 0.08f, tile * 0.22f, paint);
         paint.setColor(accent);
@@ -865,22 +923,22 @@ final class GameView extends View {
             Cell cell = toCell(car);
             int x = cell.x + direction.dx;
             int y = cell.y + direction.dy;
-            if (isTunnelRow(cell.y) && y == cell.y && (x < 0 || x >= GameConfig.MAP_WIDTH)) {
+            if (isTunnelRow(cell.y) && y == cell.y && (x < 0 || x >= mapWidth)) {
                 return true;
             }
-            return x > 0 && y > 0 && x < GameConfig.MAP_WIDTH - 1 && y < GameConfig.MAP_HEIGHT - 1;
+            return x > 0 && y > 0 && x < mapWidth - 1 && y < mapHeight - 1;
         }
         Cell cell = toCell(car);
         int x = cell.x + direction.dx;
         int y = cell.y + direction.dy;
-        if (isTunnelRow(cell.y) && y == cell.y && (x < 0 || x >= GameConfig.MAP_WIDTH)) {
+        if (isTunnelRow(cell.y) && y == cell.y && (x < 0 || x >= mapWidth)) {
             return true;
         }
-        return x >= 0 && y >= 0 && x < GameConfig.MAP_WIDTH && y < GameConfig.MAP_HEIGHT && grid[y][x] != WALL;
+        return x >= 0 && y >= 0 && x < mapWidth && y < mapHeight && grid[y][x] != WALL;
     }
 
     private boolean isTunnelRow(int y) {
-        return y == 5 || y == GameConfig.MAP_HEIGHT - 6;
+        return y == 5 || y == mapHeight - 6;
     }
 
     private boolean atCenter(Car car) {
