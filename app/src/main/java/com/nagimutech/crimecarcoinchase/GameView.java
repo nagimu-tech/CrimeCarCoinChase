@@ -33,7 +33,7 @@ final class GameView extends View {
     private static final int COIN_VALUE = 1;
     private static final int DIAMOND_VALUE = 10;
     private static final int DIAMOND_COUNT = 8;
-    private static final float PLAYER_SPEED = 0.42f;
+    private static final float PLAYER_SPEED = 0.7f;
     private static final long INVULNERABLE_MS = 1200L;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -203,7 +203,12 @@ final class GameView extends View {
             return;
         }
         player.nextDir = direction;
-        player.stopAtCenter = direction == Direction.NONE;
+        if (direction == Direction.NONE) {
+            player.dir = Direction.NONE;
+            player.stopAtCenter = false;
+        } else {
+            player.stopAtCenter = false;
+        }
     }
 
     private void update(float delta, long now) {
@@ -412,7 +417,7 @@ final class GameView extends View {
     }
 
     private void move(Car car, float speed, float delta) {
-        float step = speed * (delta / 16.67f);
+        float step = speed * (delta / 1000f);
         if (atCenter(car)) {
             snap(car);
             if (car.nextDir != Direction.NONE && canMove(car, car.nextDir)) {
@@ -495,7 +500,7 @@ final class GameView extends View {
     }
 
     private void drawGame(Canvas canvas) {
-        float tile = Math.min(getWidth() / (float) GameConfig.MAP_WIDTH, getHeight() / (float) GameConfig.MAP_HEIGHT);
+        float tile = Math.max(getWidth() / (float) GameConfig.MAP_WIDTH, getHeight() / (float) GameConfig.MAP_HEIGHT);
         float originX = (getWidth() - tile * GameConfig.MAP_WIDTH) / 2f;
         float originY = (getHeight() - tile * GameConfig.MAP_HEIGHT) / 2f;
         canvas.drawColor(colors.background);
@@ -551,6 +556,8 @@ final class GameView extends View {
 
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(120, 0, 0, 0));
+        canvas.drawRoundRect(new RectF(8f * density, safeTop + button + 6f * density, getWidth() - 8f * density, safeTop + button + 38f * density), 12f * density, 12f * density, paint);
         paint.setColor(Color.argb(230, 255, 255, 255));
         paint.setTextSize(16f * density);
         paint.setFakeBoldText(true);
