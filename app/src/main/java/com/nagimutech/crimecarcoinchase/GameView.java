@@ -33,7 +33,7 @@ final class GameView extends View {
     private static final int COIN_VALUE = 1;
     private static final int DIAMOND_VALUE = 10;
     private static final int DIAMOND_COUNT = 8;
-    private static final float PLAYER_SPEED = 1.2f;
+    private static final float PLAYER_SPEED = 2.4f;
     private static final long INVULNERABLE_MS = 1200L;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -212,23 +212,30 @@ final class GameView extends View {
             player.nextDir = Direction.NONE;
             player.stopAtCenter = false;
         } else {
-            if (player.dir == Direction.NONE && canResumeFromStop(player, direction)) {
+            if (player.dir == Direction.NONE && alignStoppedCarForDirection(player, direction)) {
                 player.dir = direction;
             }
             player.stopAtCenter = false;
         }
     }
 
-    private boolean canResumeFromStop(Car car, Direction direction) {
+    private boolean alignStoppedCarForDirection(Car car, Direction direction) {
+        float originalX = car.x;
+        float originalY = car.y;
         float centerX = Math.round(car.x - 0.5f) + 0.5f;
         float centerY = Math.round(car.y - 0.5f) + 0.5f;
-        if (direction.dx != 0 && Math.abs(car.y - centerY) > 0.003f) {
-            return false;
+        if (direction.dx != 0) {
+            car.y = centerY;
         }
-        if (direction.dy != 0 && Math.abs(car.x - centerX) > 0.003f) {
-            return false;
+        if (direction.dy != 0) {
+            car.x = centerX;
         }
-        return canMove(car, direction);
+        if (canMove(car, direction)) {
+            return true;
+        }
+        car.x = originalX;
+        car.y = originalY;
+        return false;
     }
 
     private void update(float delta, long now) {
@@ -274,6 +281,7 @@ final class GameView extends View {
         }
 
         addExtraPassages();
+        addSideTunnels();
         placeMarkers();
     }
 
@@ -304,21 +312,41 @@ final class GameView extends View {
         }
     }
 
+    private void addSideTunnels() {
+        addTunnelRow(5);
+        addTunnelRow(GameConfig.MAP_HEIGHT - 6);
+    }
+
+    private void addTunnelRow(int y) {
+        grid[y][0] = EMPTY;
+        grid[y][GameConfig.MAP_WIDTH - 1] = EMPTY;
+        if (grid[y][1] == WALL) {
+            grid[y][1] = COIN;
+        }
+        if (grid[y][GameConfig.MAP_WIDTH - 2] == WALL) {
+            grid[y][GameConfig.MAP_WIDTH - 2] = COIN;
+        }
+    }
+
     private void placeMarkers() {
         ArrayList<Cell> open = new ArrayList<>();
         for (int y = 1; y < GameConfig.MAP_HEIGHT - 1; y++) {
             for (int x = 1; x < GameConfig.MAP_WIDTH - 1; x++) {
                 if (grid[y][x] != WALL) {
                     open.add(new Cell(x, y));
-                    scoreTotal += COIN_VALUE;
+                    if (grid[y][x] == COIN) {
+                        scoreTotal += COIN_VALUE;
+                    }
                 }
             }
         }
 
         Cell playerCell = new Cell(1, 1);
         player = new Car(playerCell);
+        if (grid[playerCell.y][playerCell.x] == COIN) {
+            scoreTotal -= COIN_VALUE;
+        }
         grid[playerCell.y][playerCell.x] = EMPTY;
-        scoreTotal -= COIN_VALUE;
 
         open.sort(new Comparator<Cell>() {
             @Override
@@ -456,6 +484,7 @@ final class GameView extends View {
         float oldY = car.y;
         car.x += car.dir.dx * step;
         car.y += car.dir.dy * step;
+        wrapTunnel(car);
 
         if (car.dir.dx != 0) {
             float targetX = nextCenter(oldX, car.dir.dx);
@@ -473,6 +502,18 @@ final class GameView extends View {
         }
         if (car.dir != Direction.NONE) {
             car.angle = (float) Math.atan2(car.dir.dy, car.dir.dx);
+        }
+    }
+
+    private void wrapTunnel(Car car) {
+        Cell cell = toCell(car);
+        if (!isTunnelRow(cell.y)) {
+            return;
+        }
+        if (car.x < 0.5f) {
+            car.x = GameConfig.MAP_WIDTH - 0.5f;
+        } else if (car.x > GameConfig.MAP_WIDTH - 0.5f) {
+            car.x = 0.5f;
         }
     }
 
@@ -685,7 +726,14 @@ final class GameView extends View {
         Cell cell = toCell(car);
         int x = cell.x + direction.dx;
         int y = cell.y + direction.dy;
+        if (isTunnelRow(cell.y) && y == cell.y && (x < 0 || x >= GameConfig.MAP_WIDTH)) {
+            return true;
+        }
         return x >= 0 && y >= 0 && x < GameConfig.MAP_WIDTH && y < GameConfig.MAP_HEIGHT && grid[y][x] != WALL;
+    }
+
+    private boolean isTunnelRow(int y) {
+        return y == 5 || y == GameConfig.MAP_HEIGHT - 6;
     }
 
     private boolean atCenter(Car car) {
