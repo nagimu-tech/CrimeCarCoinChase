@@ -106,6 +106,13 @@ public final class MainActivity extends Activity implements GameView.Listener {
         title.setTypeface(null, 1);
         panel.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
+        TextView producer = panelText("\u041f\u0440\u043e\u0438\u0437\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u044c: \u041e\u0441\u043c\u0430\u043d\u043e\u0432\u0430 \u0410\u043c\u0435\u043b\u0438\u044f");
+        producer.setTextSize(18f);
+        producer.setGravity(Gravity.CENTER);
+        producer.setTypeface(null, 1);
+        producer.setTextColor(Color.rgb(245, 200, 75));
+        panel.addView(producer, new LinearLayout.LayoutParams(-1, -2));
+
         TextView version = panelText("Версия " + GameConfig.APP_VERSION + ". История сохраняется после обновлений.");
         panel.addView(version, new LinearLayout.LayoutParams(-1, -2));
 
