@@ -1,7 +1,7 @@
 package com.nagimutech.crimecarcoinchase;
 
 final class GameConfig {
-    static final String APP_VERSION = "1.9.0";
+    static final String APP_VERSION = "2.0.0";
     static final int STORAGE_SCHEMA = 1;
     static final String PREFS = "pogonya_za_monetami";
     static final String PREF_WINS = "wins_v1";

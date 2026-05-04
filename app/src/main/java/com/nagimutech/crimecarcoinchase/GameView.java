@@ -40,6 +40,8 @@ final class GameView extends View {
     private static final long FREEZE_MS = 20000L;
     private static final long SHIELD_MS = 20000L;
     private static final long GHOST_MS = 7000L;
+    private static final long QUICK_TAP_MS = 360L;
+    private static final int MAX_STAGE = 3;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Random random = new Random();
@@ -68,13 +70,17 @@ final class GameView extends View {
     private float gestureStartX;
     private float gestureStartY;
     private RectF menuRect = new RectF();
-    private Artifact activeArtifact;
-    private Cell activeArtifactCell;
-    private long activeArtifactExpiresAt;
+    private final List<ArtifactDrop> activeArtifacts = new ArrayList<>();
     private long nextArtifactAt;
     private long freezeUntil;
     private long shieldUntil;
     private long ghostUntil;
+    private long lastQuickTapAt;
+    private int quickTapCount;
+    private int stageIndex;
+    private boolean exitPortalOpen;
+    private Cell exitPortalCell;
+    private boolean crossedTunnels;
 
     GameView(Context context, GameColors colors, Listener listener) {
         super(context);
@@ -99,13 +105,17 @@ final class GameView extends View {
         startedAt = startPlaying ? SystemClock.uptimeMillis() : 0L;
         pausedAt = 0L;
         lastFrameAt = 0L;
-        activeArtifact = null;
-        activeArtifactCell = null;
-        activeArtifactExpiresAt = 0L;
+        activeArtifacts.clear();
         nextArtifactAt = startPlaying ? startedAt + ARTIFACT_INTERVAL_MS : 0L;
         freezeUntil = 0L;
         shieldUntil = 0L;
         ghostUntil = 0L;
+        lastQuickTapAt = 0L;
+        quickTapCount = 0;
+        stageIndex = 1;
+        exitPortalOpen = false;
+        exitPortalCell = null;
+        crossedTunnels = false;
         grid = new int[mapHeight][mapWidth];
         generateMap();
         placeDiamonds();
@@ -157,7 +167,9 @@ final class GameView extends View {
                 long pauseDuration = SystemClock.uptimeMillis() - pausedAt;
                 startedAt += pauseDuration;
                 nextArtifactAt = shiftTimer(nextArtifactAt, pauseDuration);
-                activeArtifactExpiresAt = shiftTimer(activeArtifactExpiresAt, pauseDuration);
+                for (ArtifactDrop drop : activeArtifacts) {
+                    drop.expiresAt = shiftTimer(drop.expiresAt, pauseDuration);
+                }
                 freezeUntil = shiftTimer(freezeUntil, pauseDuration);
                 shieldUntil = shiftTimer(shieldUntil, pauseDuration);
                 ghostUntil = shiftTimer(ghostUntil, pauseDuration);
@@ -207,6 +219,7 @@ final class GameView extends View {
             if (!playing || roundOver) {
                 start(difficulty);
             }
+            registerQuickTap();
             gestureActive = true;
             gestureStartX = x;
             gestureStartY = y;
@@ -240,10 +253,29 @@ final class GameView extends View {
             setGestureDirection(Direction.NONE);
             return;
         }
+        Direction direction;
         if (Math.abs(dx) > Math.abs(dy)) {
-            setGestureDirection(dx > 0 ? Direction.RIGHT : Direction.LEFT);
+            direction = dx > 0 ? Direction.RIGHT : Direction.LEFT;
         } else {
-            setGestureDirection(dy > 0 ? Direction.DOWN : Direction.UP);
+            direction = dy > 0 ? Direction.DOWN : Direction.UP;
+        }
+        if (player != null && !canMove(player, direction)) {
+            if (direction.dy != 0 && Math.abs(dx) >= deadZone) {
+                direction = dx > 0 ? Direction.RIGHT : Direction.LEFT;
+            } else if (direction.dx != 0 && Math.abs(dy) >= deadZone) {
+                direction = dy > 0 ? Direction.DOWN : Direction.UP;
+            }
+        }
+        setGestureDirection(direction);
+    }
+
+    private void registerQuickTap() {
+        long now = SystemClock.uptimeMillis();
+        quickTapCount = now - lastQuickTapAt <= QUICK_TAP_MS ? quickTapCount + 1 : 1;
+        lastQuickTapAt = now;
+        if (quickTapCount >= 7) {
+            quickTapCount = 0;
+            spawnEasterArtifacts(now);
         }
     }
 
@@ -289,20 +321,47 @@ final class GameView extends View {
         move(player, PLAYER_SPEED, delta);
         updatePolice(delta);
         collectItem();
+        checkExitPortal();
         checkHits(now);
     }
 
     private void updateArtifact(long now) {
-        if (activeArtifact != null && now >= activeArtifactExpiresAt) {
-            clearArtifact();
-            nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
+        for (int i = activeArtifacts.size() - 1; i >= 0; i--) {
+            if (now >= activeArtifacts.get(i).expiresAt) {
+                activeArtifacts.remove(i);
+            }
         }
-        if (activeArtifact == null && playing && now >= nextArtifactAt) {
+        if (playing && now >= nextArtifactAt) {
             spawnArtifact(now);
         }
     }
 
     private void spawnArtifact(long now) {
+        ArrayList<Cell> candidates = artifactCandidates(false);
+        if (candidates.isEmpty()) {
+            nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
+            return;
+        }
+        Artifact[] normal = {Artifact.FREEZER, Artifact.SHIELD, Artifact.GHOST, Artifact.PORTAL};
+        activeArtifacts.add(new ArtifactDrop(normal[random.nextInt(normal.length)], candidates.get(random.nextInt(candidates.size())), now + ARTIFACT_VISIBLE_MS));
+        nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
+    }
+
+    private void spawnEasterArtifacts(long now) {
+        ArrayList<Cell> candidates = artifactCandidates(true);
+        Collections.shuffle(candidates, random);
+        addEasterArtifacts(candidates, Artifact.GHOST, 4, now);
+        addEasterArtifacts(candidates, Artifact.SHIELD, 5, now);
+        addEasterArtifacts(candidates, Artifact.FREEZER, 6, now);
+    }
+
+    private void addEasterArtifacts(ArrayList<Cell> candidates, Artifact artifact, int count, long now) {
+        for (int i = 0; i < count && !candidates.isEmpty(); i++) {
+            activeArtifacts.add(new ArtifactDrop(artifact, candidates.remove(candidates.size() - 1), now + ARTIFACT_VISIBLE_MS));
+        }
+    }
+
+    private ArrayList<Cell> artifactCandidates(boolean includeDiamonds) {
         ArrayList<Cell> candidates = new ArrayList<>();
         Cell playerCell = toCell(player);
         boolean right = playerCell.x >= mapWidth / 2;
@@ -313,25 +372,23 @@ final class GameView extends View {
         int maxY = bottom ? mapHeight - 2 : mapHeight / 2;
         for (int y = minY; y <= maxY; y++) {
             for (int x = minX; x <= maxX; x++) {
+                int item = grid[y][x];
                 Cell cell = new Cell(x, y);
-                if (grid[y][x] == COIN && distance(cell, playerCell) >= 2) {
+                if ((item == COIN || (includeDiamonds && item == DIAMOND)) && distance(cell, playerCell) >= 2 && !hasArtifactAt(cell)) {
                     candidates.add(cell);
                 }
             }
         }
-        if (candidates.isEmpty()) {
-            nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
-            return;
-        }
-        activeArtifactCell = candidates.get(random.nextInt(candidates.size()));
-        activeArtifact = Artifact.values()[random.nextInt(Artifact.values().length)];
-        activeArtifactExpiresAt = now + ARTIFACT_VISIBLE_MS;
+        return candidates;
     }
 
-    private void clearArtifact() {
-        activeArtifact = null;
-        activeArtifactCell = null;
-        activeArtifactExpiresAt = 0L;
+    private boolean hasArtifactAt(Cell cell) {
+        for (ArtifactDrop drop : activeArtifacts) {
+            if (drop.cell.equals(cell)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void generateMap() {
@@ -632,8 +689,14 @@ final class GameView extends View {
         }
         if (car.x < 0.5f) {
             car.x = mapWidth - 0.5f;
+            if (crossedTunnels) {
+                car.y = pairedTunnelRow(cell.y) + 0.5f;
+            }
         } else if (car.x > mapWidth - 0.5f) {
             car.x = 0.5f;
+            if (crossedTunnels) {
+                car.y = pairedTunnelRow(cell.y) + 0.5f;
+            }
         }
     }
 
@@ -646,11 +709,12 @@ final class GameView extends View {
 
     private void collectItem() {
         Cell cell = toCell(player);
-        if (activeArtifact != null && cell.equals(activeArtifactCell)) {
-            long now = SystemClock.uptimeMillis();
-            applyArtifact(activeArtifact, now);
-            clearArtifact();
-            nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
+        for (int i = activeArtifacts.size() - 1; i >= 0; i--) {
+            ArtifactDrop drop = activeArtifacts.get(i);
+            if (cell.equals(drop.cell)) {
+                applyArtifact(drop.artifact, SystemClock.uptimeMillis());
+                activeArtifacts.remove(i);
+            }
         }
         int item = grid[cell.y][cell.x];
         if (item == COIN || item == DIAMOND) {
@@ -658,24 +722,88 @@ final class GameView extends View {
             grid[cell.y][cell.x] = EMPTY;
             listener.onHudChanged(scoreCollected, scoreTotal, damage);
             if (scoreCollected == scoreTotal) {
-                playing = false;
-                roundOver = true;
-                int seconds = Math.max(1, Math.round((SystemClock.uptimeMillis() - startedAt) / 1000f));
-                int rating = calculateRating(seconds);
-                listener.onWin(rating, seconds, damage);
+                handleStageCompleted();
             }
         }
     }
 
     private void applyArtifact(Artifact artifact, long now) {
         if (artifact == Artifact.FREEZER) {
-            freezeUntil = now + FREEZE_MS;
+            freezeUntil = extendTimer(freezeUntil, now, FREEZE_MS);
         } else if (artifact == Artifact.SHIELD) {
-            shieldUntil = now + SHIELD_MS;
+            shieldUntil = extendTimer(shieldUntil, now, SHIELD_MS);
             player.invulnerableUntil = Math.max(player.invulnerableUntil, shieldUntil);
         } else if (artifact == Artifact.GHOST) {
-            ghostUntil = now + GHOST_MS;
+            ghostUntil = extendTimer(ghostUntil, now, GHOST_MS);
+        } else if (artifact == Artifact.PORTAL) {
+            crossedTunnels = !crossedTunnels;
         }
+    }
+
+    private long extendTimer(long timer, long now, long duration) {
+        return Math.max(now, timer) + duration;
+    }
+
+    private void handleStageCompleted() {
+        if (difficulty == Difficulty.DEBUT || stageIndex >= MAX_STAGE) {
+            playing = false;
+            roundOver = true;
+            int seconds = Math.max(1, Math.round((SystemClock.uptimeMillis() - startedAt) / 1000f));
+            int rating = calculateRating(seconds);
+            listener.onWin(rating, seconds, damage);
+            return;
+        }
+        if (!exitPortalOpen) {
+            openExitPortal();
+        }
+    }
+
+    private void checkExitPortal() {
+        if (!exitPortalOpen || exitPortalCell == null || !toCell(player).equals(exitPortalCell)) {
+            return;
+        }
+        stageIndex++;
+        beginNextStage();
+    }
+
+    private void beginNextStage() {
+        exitPortalOpen = false;
+        exitPortalCell = null;
+        activeArtifacts.clear();
+        nextArtifactAt = SystemClock.uptimeMillis() + ARTIFACT_INTERVAL_MS;
+        grid = new int[mapHeight][mapWidth];
+        generateMap();
+        placeDiamonds();
+        createPoliceCars();
+        listener.onHudChanged(scoreCollected, scoreTotal, damage);
+    }
+
+    private void openExitPortal() {
+        ArrayList<Cell> candidates = new ArrayList<>();
+        for (int y = 1; y < mapHeight - 1; y++) {
+            if (grid[y][1] != WALL) {
+                candidates.add(new Cell(0, y));
+            }
+            if (grid[y][mapWidth - 2] != WALL) {
+                candidates.add(new Cell(mapWidth - 1, y));
+            }
+        }
+        for (int x = 1; x < mapWidth - 1; x++) {
+            if (grid[1][x] != WALL) {
+                candidates.add(new Cell(x, 0));
+            }
+            if (grid[mapHeight - 2][x] != WALL) {
+                candidates.add(new Cell(x, mapHeight - 1));
+            }
+        }
+        if (candidates.isEmpty()) {
+            stageIndex++;
+            beginNextStage();
+            return;
+        }
+        exitPortalCell = candidates.get(random.nextInt(candidates.size()));
+        grid[exitPortalCell.y][exitPortalCell.x] = EMPTY;
+        exitPortalOpen = true;
     }
 
     private int calculateRating(int seconds) {
@@ -745,8 +873,13 @@ final class GameView extends View {
                 } else if (grid[y][x] == DIAMOND) {
                     drawDiamond(canvas, px + tile / 2f, py + tile / 2f, tile);
                 }
-                if (activeArtifact != null && activeArtifactCell.x == x && activeArtifactCell.y == y) {
-                    drawArtifact(canvas, activeArtifact, px + tile / 2f, py + tile / 2f, tile);
+                if (exitPortalOpen && exitPortalCell != null && exitPortalCell.x == x && exitPortalCell.y == y) {
+                    drawExitPortal(canvas, px + tile / 2f, py + tile / 2f, tile);
+                }
+                for (ArtifactDrop drop : activeArtifacts) {
+                    if (drop.cell.x == x && drop.cell.y == y) {
+                        drawArtifact(canvas, drop.artifact, px + tile / 2f, py + tile / 2f, tile);
+                    }
                 }
             }
         }
@@ -858,6 +991,21 @@ final class GameView extends View {
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
+    private void drawExitPortal(Canvas canvas, float x, float y, float tile) {
+        float pulse = 0.78f + 0.22f * (float) Math.sin(SystemClock.uptimeMillis() / 90.0);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(255, 240, 120));
+        canvas.drawCircle(x, y, tile * 0.34f * pulse, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(3f, tile * 0.07f));
+        paint.setColor(Color.WHITE);
+        canvas.drawCircle(x, y, tile * 0.24f, paint);
+        paint.setStrokeWidth(Math.max(2f, tile * 0.04f));
+        paint.setColor(Color.rgb(120, 235, 255));
+        canvas.drawCircle(x, y, tile * 0.43f * (1.05f - pulse * 0.15f), paint);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
     private void drawEffectBadges(Canvas canvas, float x, float y) {
         long now = SystemClock.uptimeMillis();
         float badgeX = x;
@@ -941,6 +1089,10 @@ final class GameView extends View {
         return y == 5 || y == mapHeight - 6;
     }
 
+    private int pairedTunnelRow(int y) {
+        return y == 5 ? mapHeight - 6 : 5;
+    }
+
     private boolean atCenter(Car car) {
         return Math.abs(car.x - (Math.round(car.x - 0.5f) + 0.5f)) < 0.003f
                 && Math.abs(car.y - (Math.round(car.y - 0.5f) + 0.5f)) < 0.003f;
@@ -1000,10 +1152,23 @@ final class GameView extends View {
         }
     }
 
+    private static final class ArtifactDrop {
+        final Artifact artifact;
+        final Cell cell;
+        long expiresAt;
+
+        ArtifactDrop(Artifact artifact, Cell cell, long expiresAt) {
+            this.artifact = artifact;
+            this.cell = cell;
+            this.expiresAt = expiresAt;
+        }
+    }
+
     private enum Artifact {
         FREEZER("F", Color.rgb(70, 210, 255)),
         SHIELD("S", Color.rgb(77, 230, 116)),
-        GHOST("G", Color.rgb(185, 125, 255));
+        GHOST("G", Color.rgb(185, 125, 255)),
+        PORTAL("P", Color.rgb(255, 174, 78));
 
         final String label;
         final int color;
