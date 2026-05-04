@@ -24,6 +24,7 @@ import java.util.Random;
 final class GameView extends View {
     interface Listener {
         void onHudChanged(int score, int total, int damage);
+        void onFieldCompleted(Difficulty difficulty);
         void onWin(GameResult result);
         void onLose(GameResult result);
         void onMenuRequested();
@@ -86,6 +87,8 @@ final class GameView extends View {
     private boolean crossedTunnels;
     private long fieldStartedAt;
     private boolean fastFieldCollected;
+    private boolean fieldRewarded;
+    private int banknotes;
     private final List<String> awardIds = new ArrayList<>();
     private final Map<String, Bitmap> bitmapIcons = new HashMap<>();
 
@@ -125,6 +128,7 @@ final class GameView extends View {
         exitPortalCell = null;
         crossedTunnels = false;
         fastFieldCollected = false;
+        fieldRewarded = false;
         grid = new int[mapHeight][mapWidth];
         generateMap();
         placeDiamonds();
@@ -202,6 +206,11 @@ final class GameView extends View {
     void setAwardSymbols(List<String> symbols) {
         awardIds.clear();
         awardIds.addAll(symbols);
+        invalidate();
+    }
+
+    void setBanknotes(int banknotes) {
+        this.banknotes = Math.max(0, banknotes);
         invalidate();
     }
 
@@ -766,6 +775,7 @@ final class GameView extends View {
             fastFieldCollected = true;
         }
         if (difficulty == Difficulty.DEBUT || stageIndex >= MAX_STAGE) {
+            rewardCompletedField();
             playing = false;
             roundOver = true;
             listener.onWin(createResult(true));
@@ -780,6 +790,7 @@ final class GameView extends View {
         if (!exitPortalOpen || exitPortalCell == null || !toCell(player).equals(exitPortalCell)) {
             return;
         }
+        rewardCompletedField();
         stageIndex++;
         beginNextStage();
     }
@@ -797,6 +808,7 @@ final class GameView extends View {
         }
         nextArtifactAt = SystemClock.uptimeMillis() + ARTIFACT_INTERVAL_MS;
         fieldStartedAt = SystemClock.uptimeMillis();
+        fieldRewarded = false;
         grid = new int[mapHeight][mapWidth];
         generateMap();
         placeDiamonds();
@@ -823,6 +835,7 @@ final class GameView extends View {
             }
         }
         if (candidates.isEmpty()) {
+            rewardCompletedField();
             stageIndex++;
             beginNextStage();
             return;
@@ -830,6 +843,13 @@ final class GameView extends View {
         exitPortalCell = candidates.get(random.nextInt(candidates.size()));
         grid[exitPortalCell.y][exitPortalCell.x] = EMPTY;
         exitPortalOpen = true;
+    }
+
+    private void rewardCompletedField() {
+        if (!fieldRewarded) {
+            fieldRewarded = true;
+            listener.onFieldCompleted(difficulty);
+        }
     }
 
     private int calculateRating(int seconds) {
@@ -972,10 +992,12 @@ final class GameView extends View {
         float baseY = 58f * density;
         drawBitmapIcon(canvas, "wealth", margin, baseY - icon + 3f * density, icon);
         canvas.drawText(scoreCollected + "/" + scoreTotal, margin + 23f * density, baseY, paint);
-        drawBitmapIcon(canvas, "damage", margin + 104f * density, baseY - icon + 3f * density, icon);
-        canvas.drawText(damage + "/" + GameConfig.MAX_DAMAGE, margin + 127f * density, baseY, paint);
-        drawBitmapIcon(canvas, "time", margin + 178f * density, baseY - icon + 3f * density, icon);
-        canvas.drawText(formatClock(elapsed), margin + 201f * density, baseY, paint);
+        drawBitmapIcon(canvas, "banknote", margin + 92f * density, baseY - icon + 3f * density, icon);
+        canvas.drawText(String.valueOf(banknotes), margin + 115f * density, baseY, paint);
+        drawBitmapIcon(canvas, "damage", margin + 154f * density, baseY - icon + 3f * density, icon);
+        canvas.drawText(damage + "/" + GameConfig.MAX_DAMAGE, margin + 177f * density, baseY, paint);
+        drawBitmapIcon(canvas, "time", margin + 216f * density, baseY - icon + 3f * density, icon);
+        canvas.drawText(formatClock(elapsed), margin + 239f * density, baseY, paint);
         drawEffectBadges(canvas, margin, 24f * density);
         drawAwardBadges(canvas, margin, 86f * density);
 
@@ -1114,6 +1136,8 @@ final class GameView extends View {
         float cy = s / 2f;
         if ("wealth".equals(type)) {
             drawMoneyBagIcon(iconCanvas, iconPaint, cx, cy, s * 0.42f, Color.rgb(248, 205, 78), Color.rgb(86, 61, 28));
+        } else if ("banknote".equals(type)) {
+            drawBanknoteIcon(iconCanvas, iconPaint, cx, cy, s * 0.42f);
         } else if ("damage".equals(type)) {
             drawCrackedShieldIcon(iconCanvas, iconPaint, cx, cy, s * 0.43f);
         } else if ("time".equals(type)) {
@@ -1172,6 +1196,25 @@ final class GameView extends View {
         p.setTextSize(r * 0.78f);
         p.setFakeBoldText(true);
         canvas.drawText("$", cx, cy + r * 0.36f, p);
+        p.setFakeBoldText(false);
+        p.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawBanknoteIcon(Canvas canvas, Paint p, float cx, float cy, float r) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(58, 174, 92));
+        RectF rect = new RectF(cx - r * 0.95f, cy - r * 0.58f, cx + r * 0.95f, cy + r * 0.58f);
+        canvas.drawRoundRect(rect, r * 0.14f, r * 0.14f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(r * 0.1f);
+        p.setColor(Color.rgb(190, 245, 195));
+        canvas.drawRoundRect(new RectF(cx - r * 0.74f, cy - r * 0.39f, cx + r * 0.74f, cy + r * 0.39f), r * 0.1f, r * 0.1f, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(r * 0.72f);
+        p.setFakeBoldText(true);
+        p.setColor(Color.rgb(16, 85, 42));
+        canvas.drawText("$", cx, cy + r * 0.25f, p);
         p.setFakeBoldText(false);
         p.setTextAlign(Paint.Align.LEFT);
     }

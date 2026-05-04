@@ -17,6 +17,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
@@ -35,6 +36,7 @@ import java.util.Set;
 
 public final class MainActivity extends Activity implements GameView.Listener {
     private final GameColors colors = new GameColors();
+    private FrameLayout root;
     private GameView gameView;
     private SharedPreferences prefs;
     private Difficulty difficulty = Difficulty.BEGINNER;
@@ -54,14 +56,18 @@ public final class MainActivity extends Activity implements GameView.Listener {
         );
         prefs = getSharedPreferences(GameConfig.PREFS, MODE_PRIVATE);
         prefs.edit().putInt(GameConfig.PREF_SCHEMA, GameConfig.STORAGE_SCHEMA).apply();
+        loadSavedColors();
+        recalculateAwardsFromStoredProgress();
         setTitle("Погоня за монетами");
 
-        FrameLayout root = new FrameLayout(this);
+        root = new FrameLayout(this);
         root.setBackgroundColor(colors.background);
         gameView = new GameView(this, colors, this);
+        gameView.setBanknotes(banknotes());
         root.addView(gameView, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
         refreshAwardHud();
+        showSplashScreen();
     }
 
     @Override
@@ -82,6 +88,11 @@ public final class MainActivity extends Activity implements GameView.Listener {
     @Override
     public void onHudChanged(int score, int total, int damage) {
         // HUD is drawn directly by GameView in the full-screen version.
+    }
+
+    @Override
+    public void onFieldCompleted(Difficulty difficulty) {
+        addBanknotes(banknotesFor(difficulty));
     }
 
     @Override
@@ -143,6 +154,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         });
         panel.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
 
+        if (System.currentTimeMillis() < 0L) {
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
         row1.addView(colorButton("Фон", "background"), new LinearLayout.LayoutParams(0, dp(46), 1f));
@@ -154,6 +166,13 @@ public final class MainActivity extends Activity implements GameView.Listener {
         row2.addView(colorButton("Преступник", "player"), new LinearLayout.LayoutParams(0, dp(46), 1f));
         row2.addView(colorButton("Полиция", "police"), new LinearLayout.LayoutParams(0, dp(46), 1f));
         panel.addView(row2, new LinearLayout.LayoutParams(-1, -2));
+        }
+
+        Button shop = new Button(this);
+        shop.setText("Магазин");
+        shop.setAllCaps(false);
+        shop.setOnClickListener(v -> showShopDialog());
+        panel.addView(shop, new LinearLayout.LayoutParams(-1, dp(46)));
 
         Button help = new Button(this);
         help.setText("\u0421\u043f\u0440\u0430\u0432\u043a\u0430");
@@ -227,6 +246,152 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 .show();
     }
 
+    private void showSplashScreen() {
+        FrameLayout splash = new FrameLayout(this);
+        splash.setBackgroundColor(Color.BLACK);
+
+        ImageView image = new ImageView(this);
+        image.setImageResource(getResources().getIdentifier("splash_image", "drawable", getPackageName()));
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        splash.addView(image, new FrameLayout.LayoutParams(-1, -1));
+
+        View shade = new View(this);
+        shade.setBackgroundColor(Color.argb(95, 0, 0, 0));
+        splash.addView(shade, new FrameLayout.LayoutParams(-1, -1));
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(Gravity.CENTER_HORIZONTAL);
+        content.setPadding(dp(24), dp(56), dp(24), dp(42));
+        TextView title = panelText("Погоня за монетами");
+        title.setGravity(Gravity.CENTER);
+        title.setTextSize(30f);
+        title.setTypeface(null, 1);
+        title.setShadowLayer(8f, 0f, 2f, Color.BLACK);
+        content.addView(title, new LinearLayout.LayoutParams(-1, 0, 1f));
+        Button play = new Button(this);
+        play.setText("Играть");
+        play.setAllCaps(false);
+        content.addView(play, new LinearLayout.LayoutParams(-1, dp(54)));
+        splash.addView(content, new FrameLayout.LayoutParams(-1, -1));
+
+        play.setOnClickListener(v -> root.removeView(splash));
+        root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    private void showShopDialog() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(14), dp(10), dp(14), dp(10));
+        scroll.addView(panel);
+
+        TextView money = panelText("Банкноты: " + banknotes());
+        money.setTextSize(20f);
+        money.setTypeface(null, 1);
+        panel.addView(money);
+
+        final AlertDialog[] holder = new AlertDialog[1];
+        addShopCategory(panel, "Фон", "background", holder);
+        addShopCategory(panel, "Стены", "wall", holder);
+        addShopCategory(panel, "Преступник", "player", holder);
+        addShopCategory(panel, "Полиция", "police", holder);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Магазин")
+                .setView(scroll)
+                .setPositiveButton("Понятно", null)
+                .create();
+        holder[0] = dialog;
+        dialog.show();
+    }
+
+    private void addShopCategory(LinearLayout panel, String title, String category, AlertDialog[] holder) {
+        TextView heading = panelText(title);
+        heading.setTextSize(18f);
+        heading.setTypeface(null, 1);
+        heading.setPadding(0, dp(12), 0, dp(4));
+        panel.addView(heading);
+
+        for (ShopItem item : shopItems(category)) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            View swatch = new View(this);
+            swatch.setBackgroundColor(item.color);
+            row.addView(swatch, new LinearLayout.LayoutParams(dp(34), dp(34)));
+
+            TextView label = panelText(item.name + (item.cost > 0 ? " - " + item.cost : " - бесплатно"));
+            row.addView(label, new LinearLayout.LayoutParams(0, -2, 1f));
+
+            Button action = new Button(this);
+            action.setAllCaps(false);
+            boolean owned = isShopItemOwned(item);
+            boolean selected = item.id.equals(selectedShopId(item.category));
+            if (selected) {
+                action.setText("Выбрано");
+                action.setEnabled(false);
+            } else if (owned) {
+                action.setText("Выбрать");
+                action.setOnClickListener(v -> {
+                    selectShopItem(item);
+                    holder[0].dismiss();
+                    showShopDialog();
+                });
+            } else if (banknotes() >= item.cost) {
+                action.setText("Купить");
+                action.setOnClickListener(v -> {
+                    buyShopItem(item);
+                    holder[0].dismiss();
+                    showShopDialog();
+                });
+            } else {
+                action.setText("Не хватает");
+                action.setEnabled(false);
+            }
+            row.addView(action, new LinearLayout.LayoutParams(dp(112), dp(44)));
+            panel.addView(row);
+        }
+    }
+
+    private List<ShopItem> shopItems(String category) {
+        ArrayList<ShopItem> items = new ArrayList<>();
+        if ("background".equals(category)) {
+            items.add(new ShopItem("background_default", category, "Стандарт", colors.defaultBackground(), 0));
+            items.add(new ShopItem("background_purple", category, "Фиолетовый", Color.rgb(93, 55, 138), 5));
+            items.add(new ShopItem("background_red", category, "Красный", Color.rgb(132, 43, 48), 8));
+            items.add(new ShopItem("background_green", category, "Зеленый", Color.rgb(33, 112, 70), 13));
+            items.add(new ShopItem("background_yellow", category, "Желтый", Color.rgb(128, 110, 34), 16));
+            items.add(new ShopItem("background_cyan", category, "Голубой", Color.rgb(37, 104, 142), 18));
+            items.add(new ShopItem("background_dark", category, "Тёмный", Color.rgb(17, 21, 28), 22));
+        } else if ("wall".equals(category)) {
+            items.add(new ShopItem("wall_default", category, "Стандарт", colors.defaultWall(), 0));
+            items.add(new ShopItem("wall_blue", category, "Синий", Color.rgb(52, 98, 190), 5));
+            items.add(new ShopItem("wall_red", category, "Красный", Color.rgb(190, 56, 64), 8));
+            items.add(new ShopItem("wall_green", category, "Зеленый", Color.rgb(55, 165, 98), 13));
+            items.add(new ShopItem("wall_yellow", category, "Желтый", Color.rgb(215, 183, 62), 16));
+            items.add(new ShopItem("wall_cyan", category, "Голубой", Color.rgb(64, 178, 210), 18));
+            items.add(new ShopItem("wall_dark", category, "Тёмный", Color.rgb(45, 48, 58), 22));
+        } else if ("player".equals(category)) {
+            items.add(new ShopItem("player_default", category, "Стандарт", colors.defaultPlayer(), 0));
+            items.add(new ShopItem("player_blue", category, "Синий", Color.rgb(45, 120, 225), 5));
+            items.add(new ShopItem("player_purple", category, "Фиолетовый", Color.rgb(150, 75, 210), 10));
+            items.add(new ShopItem("player_green", category, "Зеленый", Color.rgb(42, 174, 92), 14));
+            items.add(new ShopItem("player_yellow", category, "Желтый", Color.rgb(236, 197, 54), 19));
+            items.add(new ShopItem("player_cyan", category, "Голубой", Color.rgb(62, 194, 230), 24));
+            items.add(new ShopItem("player_dark", category, "Тёмный", Color.rgb(35, 38, 48), 27));
+        } else if ("police".equals(category)) {
+            items.add(new ShopItem("police_default", category, "Стандарт", colors.defaultPolice(), 0));
+            items.add(new ShopItem("police_blue", category, "Синий", Color.rgb(47, 125, 225), 5));
+            items.add(new ShopItem("police_purple", category, "Фиолетовый", Color.rgb(145, 82, 215), 10));
+            items.add(new ShopItem("police_red", category, "Красный", Color.rgb(215, 55, 60), 14));
+            items.add(new ShopItem("police_green", category, "Зеленый", Color.rgb(52, 165, 94), 19));
+            items.add(new ShopItem("police_yellow", category, "Желтый", Color.rgb(230, 190, 56), 24));
+            items.add(new ShopItem("police_dark", category, "Тёмный", Color.rgb(32, 36, 46), 27));
+        }
+        return items;
+    }
+
     private void showHelpDialog() {
         String text = "\u0426\u0435\u043b\u044c: \u0441\u043e\u0431\u0440\u0430\u0442\u044c \u0432\u0441\u0435 \u043c\u043e\u043d\u0435\u0442\u044b \u0438 \u0430\u043b\u043c\u0430\u0437\u044b, \u043d\u0435 \u043f\u043e\u043b\u0443\u0447\u0438\u0432 5 \u0443\u0440\u043e\u043d\u043e\u0432.\n\n"
                 + "\u0423\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435: \u043a\u043e\u0441\u043d\u0438\u0441\u044c \u044d\u043a\u0440\u0430\u043d\u0430 \u0438 \u0432\u0435\u0434\u0438 \u043f\u0430\u043b\u0435\u0446 \u0432\u0432\u0435\u0440\u0445, \u0432\u043d\u0438\u0437, \u0432\u043b\u0435\u0432\u043e \u0438\u043b\u0438 \u0432\u043f\u0440\u0430\u0432\u043e. \u0412\u0435\u0440\u043d\u0438 \u043f\u0430\u043b\u0435\u0446 \u043a \u0446\u0435\u043d\u0442\u0440\u0443 \u0436\u0435\u0441\u0442\u0430 \u0438\u043b\u0438 \u043e\u0442\u043f\u0443\u0441\u0442\u0438, \u0447\u0442\u043e\u0431\u044b \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c\u0441\u044f.\n\n"
@@ -285,6 +450,125 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 .putInt(GameConfig.PREF_TOTAL_WEALTH, prefs.getInt(GameConfig.PREF_TOTAL_WEALTH, 0) + wealth)
                 .putInt(levelWealthKey(difficulty), prefs.getInt(levelWealthKey(difficulty), 0) + wealth)
                 .apply();
+    }
+
+    private int banknotes() {
+        return prefs.getInt(GameConfig.PREF_BANKNOTES, 0);
+    }
+
+    private void addBanknotes(int amount) {
+        prefs.edit().putInt(GameConfig.PREF_BANKNOTES, banknotes() + amount).apply();
+        if (gameView != null) {
+            gameView.setBanknotes(banknotes());
+        }
+    }
+
+    private int banknotesFor(Difficulty difficulty) {
+        if (difficulty == Difficulty.DEBUT) {
+            return 5;
+        }
+        if (difficulty == Difficulty.BEGINNER) {
+            return 10;
+        }
+        if (difficulty == Difficulty.AMATEUR) {
+            return 15;
+        }
+        return 20;
+    }
+
+    private void buyShopItem(ShopItem item) {
+        if (isShopItemOwned(item) || banknotes() < item.cost) {
+            return;
+        }
+        HashSet<String> owned = new HashSet<>(ownedShopItems());
+        owned.add(item.id);
+        prefs.edit()
+                .putInt(GameConfig.PREF_BANKNOTES, banknotes() - item.cost)
+                .putString(GameConfig.PREF_OWNED_SHOP_ITEMS, joinIds(owned))
+                .apply();
+        selectShopItem(item);
+    }
+
+    private void selectShopItem(ShopItem item) {
+        prefs.edit().putString(selectedKey(item.category), item.id).apply();
+        applyShopItem(item);
+        if (gameView != null) {
+            gameView.setBanknotes(banknotes());
+            gameView.invalidate();
+        }
+    }
+
+    private void loadSavedColors() {
+        applySelectedShopItem("background");
+        applySelectedShopItem("wall");
+        applySelectedShopItem("player");
+        applySelectedShopItem("police");
+    }
+
+    private void applySelectedShopItem(String category) {
+        String selected = selectedShopId(category);
+        for (ShopItem item : shopItems(category)) {
+            if (item.id.equals(selected)) {
+                applyShopItem(item);
+                return;
+            }
+        }
+    }
+
+    private void applyShopItem(ShopItem item) {
+        if ("background".equals(item.category)) {
+            colors.background = item.color;
+            colors.road = colors.lighten(item.color, 28);
+            if (root != null) {
+                root.setBackgroundColor(colors.background);
+            }
+        } else if ("wall".equals(item.category)) {
+            colors.wall = item.color;
+        } else if ("player".equals(item.category)) {
+            colors.player = item.color;
+        } else if ("police".equals(item.category)) {
+            colors.police = item.color;
+        }
+    }
+
+    private boolean isShopItemOwned(ShopItem item) {
+        return item.cost == 0 || ownedShopItems().contains(item.id);
+    }
+
+    private List<String> ownedShopItems() {
+        String raw = prefs.getString(GameConfig.PREF_OWNED_SHOP_ITEMS, "");
+        if (raw == null || raw.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(Arrays.asList(raw.split(",")));
+    }
+
+    private String joinIds(Set<String> ids) {
+        StringBuilder encoded = new StringBuilder();
+        for (String id : ids) {
+            if (encoded.length() > 0) {
+                encoded.append(",");
+            }
+            encoded.append(id);
+        }
+        return encoded.toString();
+    }
+
+    private String selectedShopId(String category) {
+        return prefs.getString(selectedKey(category), category + "_default");
+    }
+
+    private String selectedKey(String category) {
+        if ("background".equals(category)) {
+            return GameConfig.PREF_SELECTED_BACKGROUND;
+        }
+        if ("wall".equals(category)) {
+            return GameConfig.PREF_SELECTED_WALL;
+        }
+        if ("player".equals(category)) {
+            return GameConfig.PREF_SELECTED_PLAYER;
+        }
+        return GameConfig.PREF_SELECTED_POLICE;
     }
 
     private List<WinRecord> loadWins(Difficulty difficulty) {
@@ -409,6 +693,8 @@ public final class MainActivity extends Activity implements GameView.Listener {
     }
 
     private void showAwardsDialog() {
+        recalculateAwardsFromStoredProgress();
+        refreshAwardHud();
         ScrollView scroll = new ScrollView(this);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
@@ -419,6 +705,10 @@ public final class MainActivity extends Activity implements GameView.Listener {
         total.setTextSize(18f);
         total.setTypeface(null, 1);
         panel.addView(total);
+
+        for (Difficulty value : Difficulty.values()) {
+            panel.addView(panelText(value.label + ": " + prefs.getInt(levelWealthKey(value), 0)));
+        }
 
         for (Award award : awards()) {
             boolean unlocked = isAwardUnlocked(award.id);
@@ -448,15 +738,35 @@ public final class MainActivity extends Activity implements GameView.Listener {
         if (result.won && result.fastField) {
             unlocked.add("flash");
         }
-        if (result.won) {
-            int levelWealth = prefs.getInt(levelWealthKey(result.difficulty), 0);
-            for (Award award : awards()) {
-                if (result.difficulty.name().equals(award.difficultyKey) && levelWealth >= award.threshold) {
-                    unlocked.add(award.id);
+        addStoredProgressAwards(unlocked);
+        saveUnlockedAwards(unlocked);
+    }
+
+    private void recalculateAwardsFromStoredProgress() {
+        HashSet<String> unlocked = new HashSet<>(unlockedAwards());
+        if (prefs.getInt(GameConfig.PREF_EARLY_GAMES, 0) >= 10) {
+            unlocked.add("early");
+        }
+        if (prefs.getInt(GameConfig.PREF_LATE_GAMES, 0) >= 10) {
+            unlocked.add("late");
+        }
+        addStoredProgressAwards(unlocked);
+        saveUnlockedAwards(unlocked);
+    }
+
+    private void addStoredProgressAwards(Set<String> unlocked) {
+        for (Award award : awards()) {
+            if (award.difficultyKey != null) {
+                try {
+                    Difficulty value = Difficulty.valueOf(award.difficultyKey);
+                    if (prefs.getInt(levelWealthKey(value), 0) >= award.threshold) {
+                        unlocked.add(award.id);
+                    }
+                } catch (IllegalArgumentException ignored) {
+                    // Ignore malformed legacy award keys.
                 }
             }
         }
-        saveUnlockedAwards(unlocked);
     }
 
     private List<String> unlockedAwards() {
@@ -573,6 +883,22 @@ public final class MainActivity extends Activity implements GameView.Listener {
             dialog.dismiss();
         });
         dialog.show();
+    }
+
+    private static final class ShopItem {
+        final String id;
+        final String category;
+        final String name;
+        final int color;
+        final int cost;
+
+        ShopItem(String id, String category, String name, int color, int cost) {
+            this.id = id;
+            this.category = category;
+            this.name = name;
+            this.color = color;
+            this.cost = cost;
+        }
     }
 
     private static final class Award {
