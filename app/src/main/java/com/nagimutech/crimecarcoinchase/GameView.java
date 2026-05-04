@@ -21,8 +21,8 @@ import java.util.Random;
 final class GameView extends View {
     interface Listener {
         void onHudChanged(int score, int total, int damage);
-        void onWin(int rating, int seconds, int damage);
-        void onLose();
+        void onWin(GameResult result);
+        void onLose(GameResult result);
         void onMenuRequested();
     }
 
@@ -81,6 +81,9 @@ final class GameView extends View {
     private boolean exitPortalOpen;
     private Cell exitPortalCell;
     private boolean crossedTunnels;
+    private long fieldStartedAt;
+    private boolean fastFieldCollected;
+    private final List<String> awardSymbols = new ArrayList<>();
 
     GameView(Context context, GameColors colors, Listener listener) {
         super(context);
@@ -103,6 +106,7 @@ final class GameView extends View {
         roundOver = false;
         gestureActive = false;
         startedAt = startPlaying ? SystemClock.uptimeMillis() : 0L;
+        fieldStartedAt = startedAt;
         pausedAt = 0L;
         lastFrameAt = 0L;
         activeArtifacts.clear();
@@ -116,6 +120,7 @@ final class GameView extends View {
         exitPortalOpen = false;
         exitPortalCell = null;
         crossedTunnels = false;
+        fastFieldCollected = false;
         grid = new int[mapHeight][mapWidth];
         generateMap();
         placeDiamonds();
@@ -166,6 +171,7 @@ final class GameView extends View {
             if (startedAt > 0L) {
                 long pauseDuration = SystemClock.uptimeMillis() - pausedAt;
                 startedAt += pauseDuration;
+                fieldStartedAt += pauseDuration;
                 nextArtifactAt = shiftTimer(nextArtifactAt, pauseDuration);
                 for (ArtifactDrop drop : activeArtifacts) {
                     drop.expiresAt = shiftTimer(drop.expiresAt, pauseDuration);
@@ -187,6 +193,12 @@ final class GameView extends View {
 
     boolean isPlaying() {
         return playing;
+    }
+
+    void setAwardSymbols(List<String> symbols) {
+        awardSymbols.clear();
+        awardSymbols.addAll(symbols);
+        invalidate();
     }
 
     @Override
@@ -745,12 +757,14 @@ final class GameView extends View {
     }
 
     private void handleStageCompleted() {
+        long now = SystemClock.uptimeMillis();
+        if (fieldStartedAt > 0L && now - fieldStartedAt < 120000L) {
+            fastFieldCollected = true;
+        }
         if (difficulty == Difficulty.DEBUT || stageIndex >= MAX_STAGE) {
             playing = false;
             roundOver = true;
-            int seconds = Math.max(1, Math.round((SystemClock.uptimeMillis() - startedAt) / 1000f));
-            int rating = calculateRating(seconds);
-            listener.onWin(rating, seconds, damage);
+            listener.onWin(createResult(true));
             return;
         }
         if (!exitPortalOpen) {
@@ -770,7 +784,15 @@ final class GameView extends View {
         exitPortalOpen = false;
         exitPortalCell = null;
         activeArtifacts.clear();
+        freezeUntil = 0L;
+        shieldUntil = 0L;
+        ghostUntil = 0L;
+        crossedTunnels = false;
+        if (player != null) {
+            player.invulnerableUntil = 0L;
+        }
         nextArtifactAt = SystemClock.uptimeMillis() + ARTIFACT_INTERVAL_MS;
+        fieldStartedAt = SystemClock.uptimeMillis();
         grid = new int[mapHeight][mapWidth];
         generateMap();
         placeDiamonds();
@@ -843,8 +865,13 @@ final class GameView extends View {
         if (damage >= GameConfig.MAX_DAMAGE) {
             playing = false;
             roundOver = true;
-            listener.onLose();
+            listener.onLose(createResult(false));
         }
+    }
+
+    private GameResult createResult(boolean won) {
+        int seconds = startedAt > 0L ? Math.max(1, Math.round((SystemClock.uptimeMillis() - startedAt) / 1000f)) : 0;
+        return new GameResult(difficulty, scoreCollected, scoreTotal, seconds, damage, startedAt, fastFieldCollected, won);
     }
 
     private void drawGame(Canvas canvas) {
@@ -926,9 +953,12 @@ final class GameView extends View {
         paint.setColor(Color.argb(230, 255, 255, 255));
         paint.setTextSize(15f * density);
         paint.setFakeBoldText(true);
-        canvas.drawText("Богатство: " + scoreCollected + " / " + scoreTotal, margin, 32f * density, paint);
-        canvas.drawText("Урон: " + damage + " / " + GameConfig.MAX_DAMAGE, margin, 58f * density, paint);
-        drawEffectBadges(canvas, margin + 150f * density, 58f * density);
+        long elapsed = startedAt > 0L ? Math.max(0L, (SystemClock.uptimeMillis() - startedAt) / 1000L) : 0L;
+        canvas.drawText("$ " + scoreCollected + "/" + scoreTotal, margin, 42f * density, paint);
+        canvas.drawText("裂 " + damage + "/" + GameConfig.MAX_DAMAGE, margin + 104f * density, 42f * density, paint);
+        canvas.drawText("◷ " + formatClock(elapsed), margin + 178f * density, 42f * density, paint);
+        drawAwardBadges(canvas, margin, 66f * density);
+        drawEffectBadges(canvas, margin + 252f * density, 42f * density);
 
         if (!playing || roundOver) {
             paint.setColor(Color.argb(235, 245, 200, 75));
@@ -1024,6 +1054,33 @@ final class GameView extends View {
         canvas.drawText(label + " " + Math.max(1L, remaining / 1000L), x, y, paint);
         paint.setFakeBoldText(false);
         return x + 42f * density;
+    }
+
+    private String formatClock(long seconds) {
+        return (seconds / 60L) + ":" + (seconds % 60L < 10L ? "0" : "") + (seconds % 60L);
+    }
+
+    private void drawAwardBadges(Canvas canvas, float x, float y) {
+        float badge = 12f * density;
+        float gap = 4f * density;
+        float maxX = getWidth() - 70f * density;
+        for (int i = 0; i < awardSymbols.size() && x + badge <= maxX; i++) {
+            drawAwardBadge(canvas, awardSymbols.get(i), x + badge / 2f, y - badge / 2f, badge);
+            x += badge + gap;
+        }
+    }
+
+    private void drawAwardBadge(Canvas canvas, String symbol, float x, float y, float size) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(245, 200, 75));
+        canvas.drawCircle(x, y, size * 0.48f, paint);
+        paint.setColor(Color.rgb(31, 38, 52));
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(size * 0.58f);
+        canvas.drawText(symbol, x, y + size * 0.2f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
     }
 
     private void drawCar(Canvas canvas, Car car, int body, int accent, float tile, float originX, float originY, boolean isPlayer) {
