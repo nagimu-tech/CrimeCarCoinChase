@@ -936,15 +936,15 @@ final class GameView extends View {
     }
 
     private float topBarHeight() {
-        return 76f * density;
+        return 96f * density;
     }
 
     private void drawOverlay(Canvas canvas) {
         float barHeight = topBarHeight();
-        float safeTop = 8f * density;
         float button = 48f * density;
         float margin = 12f * density;
-        menuRect.set(getWidth() - margin - button, safeTop + 6f * density, getWidth() - margin, safeTop + 6f * density + button);
+        float menuTop = (barHeight - button) / 2f;
+        menuRect.set(getWidth() - margin - button, menuTop, getWidth() - margin, menuTop + button);
 
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.argb(178, 0, 0, 0));
@@ -969,21 +969,21 @@ final class GameView extends View {
         paint.setFakeBoldText(true);
         long elapsed = startedAt > 0L ? Math.max(0L, (SystemClock.uptimeMillis() - startedAt) / 1000L) : 0L;
         float icon = 18f * density;
-        float baseY = 42f * density;
+        float baseY = 58f * density;
         drawBitmapIcon(canvas, "wealth", margin, baseY - icon + 3f * density, icon);
         canvas.drawText(scoreCollected + "/" + scoreTotal, margin + 23f * density, baseY, paint);
         drawBitmapIcon(canvas, "damage", margin + 104f * density, baseY - icon + 3f * density, icon);
         canvas.drawText(damage + "/" + GameConfig.MAX_DAMAGE, margin + 127f * density, baseY, paint);
         drawBitmapIcon(canvas, "time", margin + 178f * density, baseY - icon + 3f * density, icon);
         canvas.drawText(formatClock(elapsed), margin + 201f * density, baseY, paint);
-        drawAwardBadges(canvas, margin, 66f * density);
-        drawEffectBadges(canvas, margin + 252f * density, 42f * density);
+        drawEffectBadges(canvas, margin, 24f * density);
+        drawAwardBadges(canvas, margin, 86f * density);
 
         if (!playing || roundOver) {
             paint.setColor(Color.argb(235, 245, 200, 75));
             paint.setTextSize(12f * density);
             String text = roundOver ? "Коснись поля для нового заезда" : "Коснись поля и веди палец";
-            canvas.drawText(text, getWidth() * 0.38f, 58f * density, paint);
+            canvas.drawText(text, getWidth() * 0.38f, 86f * density, paint);
         } else if (paused) {
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setColor(Color.argb(210, 255, 255, 255));
