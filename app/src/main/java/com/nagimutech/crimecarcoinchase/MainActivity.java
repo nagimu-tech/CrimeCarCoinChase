@@ -17,7 +17,6 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
@@ -234,10 +233,10 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 + "\u041d\u0430 \u0432\u0441\u0435\u0445 \u0443\u0440\u043e\u0432\u043d\u044f\u0445, \u043a\u0440\u043e\u043c\u0435 \u00ab\u0414\u0435\u0431\u044e\u0442\u0430\u00bb, \u043d\u0443\u0436\u043d\u043e \u043f\u0440\u043e\u0439\u0442\u0438 3 \u043f\u043e\u043b\u044f. \u041a\u043e\u0433\u0434\u0430 \u0432\u0441\u0435 \u043c\u043e\u043d\u0435\u0442\u044b \u0438 \u0430\u043b\u043c\u0430\u0437\u044b \u0441\u043e\u0431\u0440\u0430\u043d\u044b, \u0432 \u0441\u0442\u0435\u043d\u0435 \u043f\u043e\u044f\u0432\u0438\u0442\u0441\u044f \u0441\u0432\u0435\u0440\u043a\u0430\u044e\u0449\u0430\u044f \u0434\u044b\u0440\u0430 \u043d\u0430 \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0435 \u043f\u043e\u043b\u0435.\n\n"
                 + "\u041c\u043e\u043d\u0435\u0442\u0430: +1 \u043a \u0431\u043e\u0433\u0430\u0442\u0441\u0442\u0432\u0443.\n"
                 + "\u0410\u043b\u043c\u0430\u0437: +10 \u043a \u0431\u043e\u0433\u0430\u0442\u0441\u0442\u0432\u0443.\n\n"
+                + "P: \u041f\u043e\u0440\u0442\u0430\u043b, \u043c\u0435\u043d\u044f\u0435\u0442 \u0441\u0432\u044f\u0437\u044c \u0431\u043e\u043a\u043e\u0432\u044b\u0445 \u0434\u044b\u0440: \u0432\u0435\u0440\u0445\u043d\u044f\u044f \u043b\u0435\u0432\u0430\u044f \u043c\u043e\u0436\u0435\u0442 \u0432\u044b\u0432\u0435\u0441\u0442\u0438 \u0432 \u043d\u0438\u0436\u043d\u044e\u044e \u043f\u0440\u0430\u0432\u0443\u044e, \u0438 \u043d\u0430\u043e\u0431\u043e\u0440\u043e\u0442.\n"
                 + "F: \u0424\u0440\u0438\u0437\u0435\u0440, \u0437\u0430\u043c\u043e\u0440\u0430\u0436\u0438\u0432\u0430\u0435\u0442 \u043f\u043e\u043b\u0438\u0446\u0438\u044e \u043d\u0430 20 \u0441\u0435\u043a\u0443\u043d\u0434.\n"
                 + "S: \u0417\u0430\u0449\u0438\u0442\u0430, \u043d\u0430 20 \u0441\u0435\u043a\u0443\u043d\u0434 \u0443\u0431\u0438\u0440\u0430\u0435\u0442 \u0443\u0440\u043e\u043d \u043e\u0442 \u043f\u043e\u043b\u0438\u0446\u0438\u0438. \u041c\u0430\u0448\u0438\u043d\u043a\u0430 \u0441\u0432\u0435\u0442\u0438\u0442\u0441\u044f \u043f\u0443\u043b\u044c\u0441\u0438\u0440\u0443\u044e\u0449\u0435\u0439 \u043e\u043a\u0430\u043d\u0442\u043e\u0432\u043a\u043e\u0439.\n"
                 + "G: \u041f\u0440\u0438\u0437\u0440\u0430\u043a, \u043d\u0430 7 \u0441\u0435\u043a\u0443\u043d\u0434 \u043f\u043e\u0437\u0432\u043e\u043b\u044f\u0435\u0442 \u0435\u0445\u0430\u0442\u044c \u0441\u043a\u0432\u043e\u0437\u044c \u0441\u0442\u0435\u043d\u044b.\n\n"
-                + "P: \u041f\u043e\u0440\u0442\u0430\u043b, \u043c\u0435\u043d\u044f\u0435\u0442 \u0441\u0432\u044f\u0437\u044c \u0431\u043e\u043a\u043e\u0432\u044b\u0445 \u0434\u044b\u0440: \u0432\u0435\u0440\u0445\u043d\u044f\u044f \u043b\u0435\u0432\u0430\u044f \u043c\u043e\u0436\u0435\u0442 \u0432\u044b\u0432\u0435\u0441\u0442\u0438 \u0432 \u043d\u0438\u0436\u043d\u044e\u044e \u043f\u0440\u0430\u0432\u0443\u044e, \u0438 \u043d\u0430\u043e\u0431\u043e\u0440\u043e\u0442.\n\n"
                 + "\u0411\u043e\u043a\u043e\u0432\u044b\u0435 \u0434\u044b\u0440\u044b \u0432 \u0441\u0442\u0435\u043d\u0430\u0445 \u043f\u0435\u0440\u0435\u043d\u043e\u0441\u044f\u0442 \u043c\u0430\u0448\u0438\u043d\u043a\u0443 \u043d\u0430 \u0434\u0440\u0443\u0433\u0443\u044e \u0441\u0442\u043e\u0440\u043e\u043d\u0443 \u043a\u0430\u0440\u0442\u044b.";
         new AlertDialog.Builder(this)
                 .setTitle("\u0421\u043f\u0440\u0430\u0432\u043a\u0430")
@@ -349,39 +348,50 @@ public final class MainActivity extends Activity implements GameView.Listener {
     }
 
     private void showHistoryDialog() {
-        HorizontalScrollView horizontal = new HorizontalScrollView(this);
-        ScrollView vertical = new ScrollView(this);
-        TableLayout table = new TableLayout(this);
-        table.setStretchAllColumns(true);
-        vertical.addView(table);
-        horizontal.addView(vertical);
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(12), dp(8), dp(12), dp(8));
+        scroll.addView(panel);
 
-        TableRow header = new TableRow(this);
         for (Difficulty difficulty : Difficulty.values()) {
-            header.addView(tableCell(difficulty.label, true));
-        }
-        table.addView(header);
+            TextView title = panelText(difficulty.label);
+            title.setTextSize(18f);
+            title.setTypeface(null, 1);
+            title.setPadding(0, dp(8), 0, dp(4));
+            panel.addView(title);
 
-        ArrayList<List<WinRecord>> columns = new ArrayList<>();
-        for (Difficulty difficulty : Difficulty.values()) {
-            columns.add(loadWins(difficulty));
-        }
-        for (int row = 0; row < GameConfig.HISTORY_LIMIT; row++) {
-            TableRow tableRow = new TableRow(this);
-            for (List<WinRecord> records : columns) {
-                String text = "";
+            TableLayout table = new TableLayout(this);
+            table.setStretchAllColumns(true);
+            TableRow header = new TableRow(this);
+            header.addView(tableCell("#", true));
+            header.addView(tableCell("Богатство", true));
+            header.addView(tableCell("Время", true));
+            header.addView(tableCell("Урон", true));
+            table.addView(header);
+
+            List<WinRecord> records = loadWins(difficulty);
+            for (int row = 0; row < GameConfig.HISTORY_LIMIT; row++) {
+                TableRow tableRow = new TableRow(this);
+                tableRow.addView(tableCell(String.valueOf(row + 1), false));
                 if (row < records.size()) {
                     WinRecord win = records.get(row);
-                    text = win.wealth + "\n" + formatTime(win.seconds) + "\n" + win.damage + "/" + GameConfig.MAX_DAMAGE;
+                    tableRow.addView(tableCell(String.valueOf(win.wealth), false));
+                    tableRow.addView(tableCell(formatTime(win.seconds), false));
+                    tableRow.addView(tableCell(win.damage + "/" + GameConfig.MAX_DAMAGE, false));
+                } else {
+                    tableRow.addView(tableCell("", false));
+                    tableRow.addView(tableCell("", false));
+                    tableRow.addView(tableCell("", false));
                 }
-                tableRow.addView(tableCell(text, false));
+                table.addView(tableRow);
             }
-            table.addView(tableRow);
+            panel.addView(table);
         }
 
         new AlertDialog.Builder(this)
                 .setTitle("История побед")
-                .setView(horizontal)
+                .setView(scroll)
                 .setPositiveButton("Понятно", null)
                 .show();
     }
@@ -394,7 +404,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         view.setTypeface(null, header ? 1 : 0);
         view.setGravity(Gravity.CENTER);
         view.setPadding(dp(8), dp(6), dp(8), dp(6));
-        view.setMinWidth(dp(96));
+        view.setMinWidth(dp(header ? 76 : 64));
         return view;
     }
 
@@ -476,7 +486,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         ArrayList<String> symbols = new ArrayList<>();
         for (Award award : awards()) {
             if (isAwardUnlocked(award.id)) {
-                symbols.add(award.symbol);
+                symbols.add(award.id);
             }
         }
         if (gameView != null) {
@@ -500,7 +510,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         awards.add(new Award("pro_3", "10 слитков и золотой бюст", "Профессионал: 25000 богатства", "P", Color.rgb(255, 160, 20), Difficulty.PRO.name(), 25000));
         awards.add(new Award("early", "Грабитель-жаворонок", "10 игр до 8 утра", "Ж", Color.rgb(255, 210, 95), null, 0));
         awards.add(new Award("late", "Грабитель-сова", "10 игр после 8 вечера", "С", Color.rgb(135, 160, 255), null, 0));
-        awards.add(new Award("flash", "Флеш", "Собрать поле меньше чем за 2 минуты", "F", Color.rgb(255, 80, 60), null, 0));
+        awards.add(new Award("flash", "Флеш", "Быстро собрать поле: Дебют 1:10, Начинающий 2:00, Любитель и Профессионал 3:00", "F", Color.rgb(255, 80, 60), null, 0));
         return awards;
     }
 
