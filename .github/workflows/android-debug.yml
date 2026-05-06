@@ -44,3 +44,48 @@ jobs:
         with:
           name: pogonya-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Send debug APK by email
+        env:
+          SMTP_HOST: smtp.yandex.ru
+          SMTP_PORT: "465"
+          SMTP_USER: osameli@yandex.ru
+          SMTP_PASSWORD: ${{ secrets.YANDEX_SMTP_PASSWORD }}
+          MAIL_FROM: osameli@yandex.ru
+          MAIL_TO: nagimo@yandex.ru
+        run: |
+          python3 <<'PY'
+          import mimetypes
+          import os
+          import smtplib
+          from pathlib import Path
+          from email.message import EmailMessage
+
+          password = os.environ["SMTP_PASSWORD"]
+          if not password:
+              raise SystemExit("YANDEX_SMTP_PASSWORD secret is required to send the APK by email.")
+
+          files = sorted(Path("app/build/outputs/apk/debug").glob("*.apk"))
+          if not files:
+              raise SystemExit("No debug APK files found to send.")
+
+          message = EmailMessage()
+          message["Subject"] = "Pogonya debug APK"
+          message["From"] = os.environ["MAIL_FROM"]
+          message["To"] = os.environ["MAIL_TO"]
+          message.set_content("Debug APK successfully built in GitHub Actions. The APK is attached.")
+
+          for path in files:
+              content_type, _ = mimetypes.guess_type(path)
+              maintype, subtype = (content_type or "application/octet-stream").split("/", 1)
+              message.add_attachment(
+                  path.read_bytes(),
+                  maintype=maintype,
+                  subtype=subtype,
+                  filename=path.name,
+              )
+
+          with smtplib.SMTP_SSL(os.environ["SMTP_HOST"], int(os.environ["SMTP_PORT"])) as smtp:
+              smtp.login(os.environ["SMTP_USER"], password)
+              smtp.send_message(message)
+          PY
