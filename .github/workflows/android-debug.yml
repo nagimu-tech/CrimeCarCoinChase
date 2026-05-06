@@ -33,7 +33,8 @@ jobs:
             echo "ANDROID_DEBUG_KEYSTORE_BASE64 secret is required to sign a compatible debug APK."
             exit 1
           fi
-          printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | tr -d '\r\n\t ' | base64 --decode > app/debug.keystore
+          printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | tr -d '\r\n\t ' | base64 --decode --ignore-garbage > app/debug.keystore
+          keytool -list -keystore app/debug.keystore -storepass android -alias androiddebugkey >/dev/null
 
       - name: Assemble debug APK
         run: gradle assembleDebug
