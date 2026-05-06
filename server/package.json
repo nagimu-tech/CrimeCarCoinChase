@@ -1,0 +1,12 @@
+{
+  "name": "crime-car-coin-chase-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WebSocket server for two-player Pogonya za monetami rooms.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
