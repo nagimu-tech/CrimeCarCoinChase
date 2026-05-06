@@ -46,6 +46,7 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
 
       - name: Send debug APK by email
+        continue-on-error: true
         env:
           SMTP_HOST: smtp.yandex.ru
           SMTP_PORT: "465"
@@ -63,7 +64,8 @@ jobs:
 
           password = os.environ["SMTP_PASSWORD"]
           if not password:
-              raise SystemExit("YANDEX_SMTP_PASSWORD secret is required to send the APK by email.")
+              print("YANDEX_SMTP_PASSWORD is not configured; skipping email delivery.")
+              raise SystemExit(0)
 
           files = sorted(Path("app/build/outputs/apk/debug").glob("*.apk"))
           if not files:
