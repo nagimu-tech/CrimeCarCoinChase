@@ -8,6 +8,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
@@ -47,6 +48,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
     private SimpleWebSocketClient onlineClient;
     private SharedPreferences prefs;
     private Difficulty difficulty = Difficulty.BEGINNER;
+    private int lastOnlineBanknoteEventId;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -106,6 +108,11 @@ public final class MainActivity extends Activity implements GameView.Listener {
     @Override
     public void onFieldCompleted(Difficulty difficulty) {
         addBanknotes(banknotesFor(difficulty));
+    }
+
+    @Override
+    public void onBankBonus(Difficulty difficulty, int banknotes) {
+        addBanknotes(banknotes);
     }
 
     @Override
@@ -269,27 +276,37 @@ public final class MainActivity extends Activity implements GameView.Listener {
         splash.addView(image, new FrameLayout.LayoutParams(-1, -1));
 
         View shade = new View(this);
-        shade.setBackgroundColor(Color.argb(95, 0, 0, 0));
+        shade.setBackgroundColor(Color.argb(70, 0, 0, 0));
         splash.addView(shade, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setGravity(Gravity.CENTER_HORIZONTAL);
-        content.setPadding(dp(24), dp(56), dp(24), dp(42));
+        content.setPadding(dp(24), dp(34), dp(24), dp(42));
         TextView title = panelText("Погоня за монетами");
         title.setGravity(Gravity.CENTER);
-        title.setTextSize(30f);
+        title.setTextSize(28f);
         title.setTypeface(null, 1);
-        title.setShadowLayer(8f, 0f, 2f, Color.BLACK);
-        content.addView(title, new LinearLayout.LayoutParams(-1, 0, 1f));
+        title.setTextColor(Color.rgb(255, 232, 178));
+        title.setShadowLayer(10f, 0f, 3f, Color.rgb(5, 16, 35));
+        title.setBackground(glassBackground(Color.argb(82, 8, 20, 38), Color.argb(130, 255, 212, 120), dp(18), 1));
+        title.setPadding(dp(14), dp(8), dp(14), dp(10));
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(-1, -2);
+        titleParams.topMargin = dp(16);
+        content.addView(title, titleParams);
+
+        View spacer = new View(this);
+        content.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1f));
         Button play = new Button(this);
         play.setText("Играть одному");
         play.setAllCaps(false);
+        styleSplashButton(play);
         content.addView(play, new LinearLayout.LayoutParams(-1, dp(54)));
 
         Button multiplayer = new Button(this);
         multiplayer.setText("Играть вдвоём");
         multiplayer.setAllCaps(false);
+        styleSplashButton(multiplayer);
         LinearLayout.LayoutParams multiplayerParams = new LinearLayout.LayoutParams(-1, dp(54));
         multiplayerParams.topMargin = dp(10);
         content.addView(multiplayer, multiplayerParams);
@@ -298,6 +315,22 @@ public final class MainActivity extends Activity implements GameView.Listener {
         play.setOnClickListener(v -> root.removeView(splash));
         multiplayer.setOnClickListener(v -> showMultiplayerChoice(splash));
         root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    private void styleSplashButton(Button button) {
+        button.setTextColor(Color.rgb(255, 232, 178));
+        button.setTextSize(18f);
+        button.setTypeface(null, 1);
+        button.setShadowLayer(4f, 0f, 1f, Color.BLACK);
+        button.setBackground(glassBackground(Color.argb(138, 6, 18, 34), Color.argb(165, 120, 206, 255), dp(14), 1));
+    }
+
+    private GradientDrawable glassBackground(int fill, int stroke, int radius, int strokeWidthDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(radius);
+        drawable.setStroke(dp(strokeWidthDp), stroke);
+        return drawable;
     }
 
     private void showMultiplayerChoice(FrameLayout splash) {
@@ -374,6 +407,8 @@ public final class MainActivity extends Activity implements GameView.Listener {
             }
         });
         onlineView.setStatus(joinCode == null ? "Создание комнаты..." : "Вход по коду...");
+        lastOnlineBanknoteEventId = 0;
+        onlineView.setBanknotes(banknotes());
         root.removeAllViews();
         root.addView(onlineView, new FrameLayout.LayoutParams(-1, -1));
 
@@ -442,7 +477,15 @@ public final class MainActivity extends Activity implements GameView.Listener {
                         onlineView.setPlayerId(message.optInt("playerId", 2));
                         onlineView.setStatus("Игрок подключился");
                     } else if ("state".equals(type)) {
-                        onlineView.applyState(message.getJSONObject("state"));
+                        JSONObject state = message.getJSONObject("state");
+                        onlineView.applyState(state);
+                        int eventId = state.optInt("banknoteEventId", 0);
+                        int reward = state.optInt("banknoteReward", 0);
+                        if (eventId > lastOnlineBanknoteEventId && reward > 0) {
+                            lastOnlineBanknoteEventId = eventId;
+                            addBanknotes(reward);
+                            onlineView.setBanknotes(banknotes());
+                        }
                     } else if ("gameOver".equals(type)) {
                         onlineView.setStatus(message.optString("message", "Игра завершена"));
                     } else if ("error".equals(type)) {
@@ -623,7 +666,9 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 + "P: \u041f\u043e\u0440\u0442\u0430\u043b, \u043c\u0435\u043d\u044f\u0435\u0442 \u0441\u0432\u044f\u0437\u044c \u0431\u043e\u043a\u043e\u0432\u044b\u0445 \u0434\u044b\u0440: \u0432\u0435\u0440\u0445\u043d\u044f\u044f \u043b\u0435\u0432\u0430\u044f \u043c\u043e\u0436\u0435\u0442 \u0432\u044b\u0432\u0435\u0441\u0442\u0438 \u0432 \u043d\u0438\u0436\u043d\u044e\u044e \u043f\u0440\u0430\u0432\u0443\u044e, \u0438 \u043d\u0430\u043e\u0431\u043e\u0440\u043e\u0442.\n"
                 + "F: \u0424\u0440\u0438\u0437\u0435\u0440, \u0437\u0430\u043c\u043e\u0440\u0430\u0436\u0438\u0432\u0430\u0435\u0442 \u043f\u043e\u043b\u0438\u0446\u0438\u044e \u043d\u0430 20 \u0441\u0435\u043a\u0443\u043d\u0434.\n"
                 + "S: \u0417\u0430\u0449\u0438\u0442\u0430, \u043d\u0430 20 \u0441\u0435\u043a\u0443\u043d\u0434 \u0443\u0431\u0438\u0440\u0430\u0435\u0442 \u0443\u0440\u043e\u043d \u043e\u0442 \u043f\u043e\u043b\u0438\u0446\u0438\u0438. \u041c\u0430\u0448\u0438\u043d\u043a\u0430 \u0441\u0432\u0435\u0442\u0438\u0442\u0441\u044f \u043f\u0443\u043b\u044c\u0441\u0438\u0440\u0443\u044e\u0449\u0435\u0439 \u043e\u043a\u0430\u043d\u0442\u043e\u0432\u043a\u043e\u0439.\n"
-                + "G: \u041f\u0440\u0438\u0437\u0440\u0430\u043a, \u043d\u0430 7 \u0441\u0435\u043a\u0443\u043d\u0434 \u043f\u043e\u0437\u0432\u043e\u043b\u044f\u0435\u0442 \u0435\u0445\u0430\u0442\u044c \u0441\u043a\u0432\u043e\u0437\u044c \u0441\u0442\u0435\u043d\u044b.\n\n"
+                + "G: \u041f\u0440\u0438\u0437\u0440\u0430\u043a, \u043d\u0430 7 \u0441\u0435\u043a\u0443\u043d\u0434 \u043f\u043e\u0437\u0432\u043e\u043b\u044f\u0435\u0442 \u0435\u0445\u0430\u0442\u044c \u0441\u043a\u0432\u043e\u0437\u044c \u0441\u0442\u0435\u043d\u044b. \u041c\u0430\u0448\u0438\u043d\u043a\u0430 \u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u0441\u044f \u043f\u043e\u043b\u0443\u043f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u043e\u0439.\n"
+                + "\u0410\u043f\u0442\u0435\u0447\u043a\u0430: \u043f\u043e\u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u043f\u0440\u0438 3 \u0438 \u0431\u043e\u043b\u0435\u0435 \u0443\u0440\u043e\u043d\u0430\u0445 \u0438 \u0443\u0431\u0438\u0440\u0430\u0435\u0442 1 \u0443\u0440\u043e\u043d.\n"
+                + "\u0411\u0430\u043d\u043a: \u043d\u0430 30 \u0441\u0435\u043a\u0443\u043d\u0434 \u043f\u043e\u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u0432 \u0441\u0442\u0435\u043d\u0435, \u0434\u0430\u0435\u0442 \u0431\u043e\u0433\u0430\u0442\u0441\u0442\u0432\u043e \u0438 \u0431\u0430\u043d\u043a\u043d\u043e\u0442\u044b, \u043d\u043e \u0432\u044b\u0437\u044b\u0432\u0430\u0435\u0442 \u0434\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u0443\u044e \u043f\u043e\u043b\u0438\u0446\u0438\u044e.\n\n"
                 + "\u0411\u043e\u043a\u043e\u0432\u044b\u0435 \u0434\u044b\u0440\u044b \u0432 \u0441\u0442\u0435\u043d\u0430\u0445 \u043f\u0435\u0440\u0435\u043d\u043e\u0441\u044f\u0442 \u043c\u0430\u0448\u0438\u043d\u043a\u0443 \u043d\u0430 \u0434\u0440\u0443\u0433\u0443\u044e \u0441\u0442\u043e\u0440\u043e\u043d\u0443 \u043a\u0430\u0440\u0442\u044b.";
         new AlertDialog.Builder(this)
                 .setTitle("\u0421\u043f\u0440\u0430\u0432\u043a\u0430")
@@ -682,6 +727,9 @@ public final class MainActivity extends Activity implements GameView.Listener {
         prefs.edit().putInt(GameConfig.PREF_BANKNOTES, banknotes() + amount).apply();
         if (gameView != null) {
             gameView.setBanknotes(banknotes());
+        }
+        if (onlineView != null) {
+            onlineView.setBanknotes(banknotes());
         }
     }
 

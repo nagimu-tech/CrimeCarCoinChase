@@ -25,6 +25,7 @@ final class GameView extends View {
     interface Listener {
         void onHudChanged(int score, int total, int damage);
         void onFieldCompleted(Difficulty difficulty);
+        void onBankBonus(Difficulty difficulty, int banknotes);
         void onWin(GameResult result);
         void onLose(GameResult result);
         void onMenuRequested();
@@ -44,6 +45,8 @@ final class GameView extends View {
     private static final long FREEZE_MS = 20000L;
     private static final long SHIELD_MS = 20000L;
     private static final long GHOST_MS = 7000L;
+    private static final long BANK_SPAWN_MS = 10000L;
+    private static final long BANK_VISIBLE_MS = 30000L;
     private static final long QUICK_TAP_MS = 360L;
     private static final int MAX_STAGE = 3;
 
@@ -88,6 +91,10 @@ final class GameView extends View {
     private long fieldStartedAt;
     private boolean fastFieldCollected;
     private boolean fieldRewarded;
+    private long bankAppearsAt;
+    private long bankExpiresAt;
+    private Cell bankCell;
+    private boolean bankRestorePending;
     private int banknotes;
     private final List<String> awardIds = new ArrayList<>();
     private final Map<String, Bitmap> bitmapIcons = new HashMap<>();
@@ -129,6 +136,10 @@ final class GameView extends View {
         crossedTunnels = false;
         fastFieldCollected = false;
         fieldRewarded = false;
+        bankAppearsAt = startPlaying ? startedAt + BANK_SPAWN_MS : 0L;
+        bankExpiresAt = 0L;
+        bankCell = null;
+        bankRestorePending = false;
         grid = new int[mapHeight][mapWidth];
         generateMap();
         placeDiamonds();
@@ -184,6 +195,8 @@ final class GameView extends View {
                 for (ArtifactDrop drop : activeArtifacts) {
                     drop.expiresAt = shiftTimer(drop.expiresAt, pauseDuration);
                 }
+                bankAppearsAt = shiftTimer(bankAppearsAt, pauseDuration);
+                bankExpiresAt = shiftTimer(bankExpiresAt, pauseDuration);
                 freezeUntil = shiftTimer(freezeUntil, pauseDuration);
                 shieldUntil = shiftTimer(shieldUntil, pauseDuration);
                 ghostUntil = shiftTimer(ghostUntil, pauseDuration);
@@ -356,8 +369,25 @@ final class GameView extends View {
                 activeArtifacts.remove(i);
             }
         }
+        updateBankArtifact(now);
         if (playing && now >= nextArtifactAt) {
             spawnArtifact(now);
+        }
+    }
+
+    private void updateBankArtifact(long now) {
+        if (bankRestorePending && bankCell != null && !toCell(player).equals(bankCell)) {
+            restoreBankWall();
+        }
+        if (bankCell != null && bankExpiresAt > 0L && now >= bankExpiresAt) {
+            if (toCell(player).equals(bankCell)) {
+                bankRestorePending = true;
+            } else {
+                restoreBankWall();
+            }
+        }
+        if (playing && bankCell == null && bankAppearsAt > 0L && now >= bankAppearsAt) {
+            spawnBank(now);
         }
     }
 
@@ -367,9 +397,65 @@ final class GameView extends View {
             nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
             return;
         }
-        Artifact[] normal = {Artifact.FREEZER, Artifact.SHIELD, Artifact.GHOST, Artifact.PORTAL};
-        activeArtifacts.add(new ArtifactDrop(normal[random.nextInt(normal.length)], candidates.get(random.nextInt(candidates.size())), now + ARTIFACT_VISIBLE_MS));
+        ArrayList<Artifact> normal = new ArrayList<>();
+        normal.add(Artifact.FREEZER);
+        normal.add(Artifact.SHIELD);
+        normal.add(Artifact.GHOST);
+        normal.add(Artifact.PORTAL);
+        if (damage >= 3) {
+            normal.add(Artifact.MEDKIT);
+            normal.add(Artifact.MEDKIT);
+        }
+        activeArtifacts.add(new ArtifactDrop(normal.get(random.nextInt(normal.size())), candidates.get(random.nextInt(candidates.size())), now + ARTIFACT_VISIBLE_MS));
         nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
+    }
+
+    private void spawnBank(long now) {
+        ArrayList<Cell> candidates = bankCandidates();
+        if (candidates.isEmpty()) {
+            bankAppearsAt = now + BANK_SPAWN_MS;
+            return;
+        }
+        bankCell = candidates.get(random.nextInt(candidates.size()));
+        grid[bankCell.y][bankCell.x] = EMPTY;
+        bankExpiresAt = now + BANK_VISIBLE_MS;
+        bankAppearsAt = 0L;
+        bankRestorePending = false;
+    }
+
+    private ArrayList<Cell> bankCandidates() {
+        ArrayList<Cell> candidates = new ArrayList<>();
+        Cell playerCell = toCell(player);
+        for (int y = 2; y < mapHeight - 2; y++) {
+            for (int x = 2; x < mapWidth - 2; x++) {
+                Cell cell = new Cell(x, y);
+                if (grid[y][x] == WALL && distance(cell, playerCell) >= 5 && hasOpenNeighbor(x, y)) {
+                    candidates.add(cell);
+                }
+            }
+        }
+        return candidates;
+    }
+
+    private boolean hasOpenNeighbor(int x, int y) {
+        for (Direction direction : new Direction[]{Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT}) {
+            int nx = x + direction.dx;
+            int ny = y + direction.dy;
+            if (nx >= 0 && ny >= 0 && nx < mapWidth && ny < mapHeight && grid[ny][nx] != WALL) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void restoreBankWall() {
+        if (bankCell != null && grid[bankCell.y][bankCell.x] == EMPTY) {
+            grid[bankCell.y][bankCell.x] = WALL;
+        }
+        bankCell = null;
+        bankExpiresAt = 0L;
+        bankAppearsAt = 0L;
+        bankRestorePending = false;
     }
 
     private void spawnEasterArtifacts(long now) {
@@ -741,6 +827,11 @@ final class GameView extends View {
                 activeArtifacts.remove(i);
             }
         }
+        if (bankCell != null && cell.equals(bankCell)) {
+            applyArtifact(Artifact.BANK, SystemClock.uptimeMillis());
+            bankRestorePending = true;
+            bankExpiresAt = 0L;
+        }
         int item = grid[cell.y][cell.x];
         if (item == COIN || item == DIAMOND) {
             scoreCollected += item == DIAMOND ? DIAMOND_VALUE : COIN_VALUE;
@@ -762,6 +853,53 @@ final class GameView extends View {
             ghostUntil = extendTimer(ghostUntil, now, GHOST_MS);
         } else if (artifact == Artifact.PORTAL) {
             crossedTunnels = !crossedTunnels;
+        } else if (artifact == Artifact.MEDKIT) {
+            damage = Math.max(0, damage - 1);
+            listener.onHudChanged(scoreCollected, scoreTotal, damage);
+        } else if (artifact == Artifact.BANK) {
+            int wealth = bankWealthBonus();
+            scoreCollected += wealth;
+            scoreTotal += wealth;
+            listener.onBankBonus(difficulty, banknoteBonus());
+            addPoliceCars(extraPoliceFromBank());
+            listener.onHudChanged(scoreCollected, scoreTotal, damage);
+        }
+    }
+
+    private int banknoteBonus() {
+        return difficulty == Difficulty.AMATEUR || difficulty == Difficulty.PROFESSIONAL ? 20 : 10;
+    }
+
+    private int bankWealthBonus() {
+        return difficulty == Difficulty.AMATEUR || difficulty == Difficulty.PROFESSIONAL ? 100 : 50;
+    }
+
+    private int extraPoliceFromBank() {
+        if (difficulty == Difficulty.AMATEUR) {
+            return 3;
+        }
+        if (difficulty == Difficulty.PROFESSIONAL) {
+            return 4;
+        }
+        return 2;
+    }
+
+    private void addPoliceCars(int count) {
+        ArrayList<Cell> open = new ArrayList<>();
+        Cell playerCell = toCell(player);
+        for (int y = 1; y < mapHeight - 1; y++) {
+            for (int x = 1; x < mapWidth - 1; x++) {
+                Cell cell = new Cell(x, y);
+                if (grid[y][x] != WALL && distance(cell, playerCell) >= 8) {
+                    open.add(cell);
+                }
+            }
+        }
+        Collections.shuffle(open, random);
+        for (int i = 0; i < count && i < open.size(); i++) {
+            Car car = new Car(open.get(i));
+            choosePoliceDirection(car);
+            policeCars.add(car);
         }
     }
 
@@ -799,6 +937,9 @@ final class GameView extends View {
         exitPortalOpen = false;
         exitPortalCell = null;
         activeArtifacts.clear();
+        if (bankCell != null || bankRestorePending) {
+            restoreBankWall();
+        }
         freezeUntil = 0L;
         shieldUntil = 0L;
         ghostUntil = 0L;
@@ -807,6 +948,10 @@ final class GameView extends View {
             player.invulnerableUntil = 0L;
         }
         nextArtifactAt = SystemClock.uptimeMillis() + ARTIFACT_INTERVAL_MS;
+        bankAppearsAt = SystemClock.uptimeMillis() + BANK_SPAWN_MS;
+        bankExpiresAt = 0L;
+        bankCell = null;
+        bankRestorePending = false;
         fieldStartedAt = SystemClock.uptimeMillis();
         fieldRewarded = false;
         grid = new int[mapHeight][mapWidth];
@@ -937,6 +1082,9 @@ final class GameView extends View {
                 if (exitPortalOpen && exitPortalCell != null && exitPortalCell.x == x && exitPortalCell.y == y) {
                     drawExitPortal(canvas, px + tile / 2f, py + tile / 2f, tile);
                 }
+                if (bankCell != null && bankCell.x == x && bankCell.y == y) {
+                    drawArtifact(canvas, Artifact.BANK, px + tile / 2f, py + tile / 2f, tile);
+                }
                 for (ArtifactDrop drop : activeArtifacts) {
                     if (drop.cell.x == x && drop.cell.y == y) {
                         drawArtifact(canvas, drop.artifact, px + tile / 2f, py + tile / 2f, tile);
@@ -951,7 +1099,11 @@ final class GameView extends View {
         long now = SystemClock.uptimeMillis();
         boolean blink = playing && now < player.invulnerableUntil && now >= shieldUntil && (now / 100) % 2 == 0;
         if (!blink) {
-            drawCar(canvas, player, colors.player, Color.rgb(243, 176, 71), tile, originX, originY, true);
+            int playerColor = colors.player;
+            if (now < ghostUntil) {
+                playerColor = Color.argb(170, Color.red(colors.player), Color.green(colors.player), Color.blue(colors.player));
+            }
+            drawCar(canvas, player, playerColor, Color.rgb(243, 176, 71), tile, originX, originY, true);
         }
     }
 
@@ -1045,6 +1197,10 @@ final class GameView extends View {
     }
 
     private void drawArtifact(Canvas canvas, Artifact artifact, float x, float y, float tile) {
+        if (artifact == Artifact.MEDKIT || artifact == Artifact.BANK) {
+            drawBitmapIcon(canvas, artifact == Artifact.MEDKIT ? "medkit" : "bank", x - tile * 0.3f, y - tile * 0.3f, tile * 0.6f);
+            return;
+        }
         float pulse = 0.9f + 0.1f * (float) Math.sin(SystemClock.uptimeMillis() / 130.0);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(artifact.color);
@@ -1142,6 +1298,10 @@ final class GameView extends View {
             drawCrackedShieldIcon(iconCanvas, iconPaint, cx, cy, s * 0.43f);
         } else if ("time".equals(type)) {
             drawClockIcon(iconCanvas, iconPaint, cx, cy, s * 0.42f);
+        } else if ("medkit".equals(type)) {
+            drawMedkitIcon(iconCanvas, iconPaint, cx, cy, s * 0.42f);
+        } else if ("bank".equals(type)) {
+            drawBankIcon(iconCanvas, iconPaint, cx, cy, s * 0.42f);
         } else if (type.startsWith("award_")) {
             drawAwardIconBitmap(iconCanvas, iconPaint, type.substring("award_".length()), cx, cy, s * 0.43f);
         }
@@ -1252,6 +1412,46 @@ final class GameView extends View {
         canvas.drawCircle(cx, cy, r * 0.74f, p);
         canvas.drawLine(cx, cy, cx, cy - r * 0.46f, p);
         canvas.drawLine(cx, cy, cx + r * 0.38f, cy + r * 0.25f, p);
+    }
+
+    private void drawMedkitIcon(Canvas canvas, Paint p, float cx, float cy, float r) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(240, 245, 248));
+        RectF body = new RectF(cx - r * 0.82f, cy - r * 0.52f, cx + r * 0.82f, cy + r * 0.66f);
+        canvas.drawRoundRect(body, r * 0.18f, r * 0.18f, p);
+        p.setColor(Color.rgb(210, 42, 52));
+        canvas.drawRoundRect(cx - r * 0.18f, cy - r * 0.38f, cx + r * 0.18f, cy + r * 0.5f, r * 0.05f, r * 0.05f, p);
+        canvas.drawRoundRect(cx - r * 0.48f, cy - r * 0.08f, cx + r * 0.48f, cy + r * 0.2f, r * 0.05f, r * 0.05f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(r * 0.12f);
+        p.setColor(Color.rgb(210, 42, 52));
+        canvas.drawRoundRect(cx - r * 0.36f, cy - r * 0.86f, cx + r * 0.36f, cy - r * 0.4f, r * 0.16f, r * 0.16f, p);
+        p.setColor(Color.rgb(90, 95, 105));
+        canvas.drawRoundRect(body, r * 0.18f, r * 0.18f, p);
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawBankIcon(Canvas canvas, Paint p, float cx, float cy, float r) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(46, 160, 88));
+        RectF body = new RectF(cx - r * 0.78f, cy - r * 0.42f, cx + r * 0.78f, cy + r * 0.64f);
+        canvas.drawRoundRect(body, r * 0.14f, r * 0.14f, p);
+        p.setColor(Color.rgb(180, 245, 190));
+        canvas.drawCircle(cx, cy + r * 0.1f, r * 0.34f, p);
+        p.setColor(Color.rgb(18, 92, 45));
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(r * 0.58f);
+        p.setFakeBoldText(true);
+        canvas.drawText("$", cx, cy + r * 0.3f, p);
+        p.setFakeBoldText(false);
+        p.setTextAlign(Paint.Align.LEFT);
+        p.setColor(Color.rgb(35, 120, 68));
+        Path roof = new Path();
+        roof.moveTo(cx - r * 0.88f, cy - r * 0.42f);
+        roof.lineTo(cx, cy - r * 0.92f);
+        roof.lineTo(cx + r * 0.88f, cy - r * 0.42f);
+        roof.close();
+        canvas.drawPath(roof, p);
     }
 
     private void drawIngotsIcon(Canvas canvas, Paint p, float cx, float cy, float r, int color) {
@@ -1425,7 +1625,9 @@ final class GameView extends View {
         FREEZER("F", Color.rgb(70, 210, 255)),
         SHIELD("S", Color.rgb(77, 230, 116)),
         GHOST("G", Color.rgb(185, 125, 255)),
-        PORTAL("P", Color.rgb(255, 174, 78));
+        PORTAL("P", Color.rgb(255, 174, 78)),
+        MEDKIT("H", Color.rgb(230, 68, 72)),
+        BANK("B", Color.rgb(58, 174, 92));
 
         final String label;
         final int color;

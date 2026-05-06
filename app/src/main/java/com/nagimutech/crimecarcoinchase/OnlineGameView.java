@@ -1,6 +1,7 @@
 package com.nagimutech.crimecarcoinchase;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -13,7 +14,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 final class OnlineGameView extends View {
     interface Listener {
@@ -32,6 +35,8 @@ final class OnlineGameView extends View {
     private final float density;
     private final List<RemoteCar> players = new ArrayList<>();
     private final List<RemoteCar> police = new ArrayList<>();
+    private final List<RemoteArtifact> artifacts = new ArrayList<>();
+    private final Map<String, Bitmap> bitmapIcons = new HashMap<>();
     private RectF menuRect = new RectF();
     private int[][] grid = new int[0][0];
     private int mapWidth;
@@ -40,6 +45,7 @@ final class OnlineGameView extends View {
     private int score;
     private int total;
     private int damage;
+    private int banknotes;
     private int stage = 1;
     private String status = "Подключение...";
     private String roomCode = "";
@@ -71,6 +77,11 @@ final class OnlineGameView extends View {
         invalidate();
     }
 
+    void setBanknotes(int banknotes) {
+        this.banknotes = Math.max(0, banknotes);
+        invalidate();
+    }
+
     void applyState(JSONObject state) {
         mapWidth = state.optInt("width", mapWidth);
         mapHeight = state.optInt("height", mapHeight);
@@ -96,6 +107,8 @@ final class OnlineGameView extends View {
         readCars(state.optJSONArray("players"), players);
         police.clear();
         readCars(state.optJSONArray("police"), police);
+        artifacts.clear();
+        readArtifacts(state.optJSONArray("artifacts"));
         invalidate();
     }
 
@@ -112,7 +125,24 @@ final class OnlineGameView extends View {
                 car.y = (float) item.optDouble("y", 1.5);
                 car.angle = (float) item.optDouble("angle", 0.0);
                 car.damage = item.optInt("damage", 0);
+                car.ghostActive = item.optBoolean("ghostActive", false);
                 target.add(car);
+            }
+        }
+    }
+
+    private void readArtifacts(JSONArray array) {
+        if (array == null) {
+            return;
+        }
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject item = array.optJSONObject(i);
+            if (item != null) {
+                RemoteArtifact artifact = new RemoteArtifact();
+                artifact.type = item.optString("type", "");
+                artifact.x = item.optInt("x", 0);
+                artifact.y = item.optInt("y", 0);
+                artifacts.add(artifact);
             }
         }
     }
@@ -214,10 +244,16 @@ final class OnlineGameView extends View {
 
         for (RemoteCar car : players) {
             int body = car.id == playerId ? colors.player : Color.rgb(255, 135, 46);
+            if (car.ghostActive) {
+                body = Color.argb(170, Color.red(body), Color.green(body), Color.blue(body));
+            }
             drawCar(canvas, car, body, Color.rgb(255, 229, 120), tile, originX, originY, true);
         }
         for (RemoteCar car : police) {
             drawCar(canvas, car, colors.police, Color.WHITE, tile, originX, originY, false);
+        }
+        for (RemoteArtifact artifact : artifacts) {
+            drawArtifact(canvas, artifact, tile, originX, originY);
         }
     }
 
@@ -233,6 +269,7 @@ final class OnlineGameView extends View {
         paint.setColor(Color.WHITE);
         float y = 34f * density;
         canvas.drawText("$ " + score + "/" + total, 14f * density, y, paint);
+        canvas.drawText("▱ " + banknotes, 70f * density, 62f * density, paint);
         canvas.drawText("♥ " + damage + "/" + GameConfig.MAX_DAMAGE, 122f * density, y, paint);
         canvas.drawText("Поле " + stage, 224f * density, y, paint);
         if (!roomCode.isEmpty()) {
@@ -287,6 +324,70 @@ final class OnlineGameView extends View {
         paint.setStyle(Paint.Style.FILL);
     }
 
+    private void drawArtifact(Canvas canvas, RemoteArtifact artifact, float tile, float originX, float originY) {
+        float x = originX + (artifact.x + 0.5f) * tile;
+        float y = originY + (artifact.y + 0.5f) * tile;
+        if ("MEDKIT".equals(artifact.type)) {
+            drawMedkitIcon(canvas, x, y, tile);
+        } else if ("BANK".equals(artifact.type)) {
+            drawBankIcon(canvas, x, y, tile);
+        } else if ("GHOST".equals(artifact.type)) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Color.rgb(185, 125, 255));
+            canvas.drawCircle(x, y, tile * 0.28f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(2f, tile * 0.05f));
+            paint.setColor(Color.WHITE);
+            canvas.drawCircle(x, y, tile * 0.2f, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setFakeBoldText(true);
+            paint.setTextSize(tile * 0.34f);
+            canvas.drawText("G", x, y + tile * 0.12f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+    }
+
+    private void drawMedkitIcon(Canvas canvas, float x, float y, float tile) {
+        float r = tile * 0.28f;
+        RectF body = new RectF(x - r, y - r * 0.7f, x + r, y + r * 0.8f);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(245, 248, 250));
+        canvas.drawRoundRect(body, r * 0.18f, r * 0.18f, paint);
+        paint.setColor(Color.rgb(214, 42, 52));
+        canvas.drawRect(x - r * 0.16f, y - r * 0.5f, x + r * 0.16f, y + r * 0.6f, paint);
+        canvas.drawRect(x - r * 0.55f, y - r * 0.08f, x + r * 0.55f, y + r * 0.22f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(2f, tile * 0.04f));
+        paint.setColor(Color.rgb(92, 96, 106));
+        canvas.drawRoundRect(body, r * 0.18f, r * 0.18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawBankIcon(Canvas canvas, float x, float y, float tile) {
+        float r = tile * 0.3f;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(46, 160, 88));
+        canvas.drawRoundRect(new RectF(x - r, y - r * 0.55f, x + r, y + r * 0.75f), r * 0.12f, r * 0.12f, paint);
+        Path roof = new Path();
+        roof.moveTo(x - r * 1.1f, y - r * 0.55f);
+        roof.lineTo(x, y - r * 1.1f);
+        roof.lineTo(x + r * 1.1f, y - r * 0.55f);
+        roof.close();
+        paint.setColor(Color.rgb(34, 116, 66));
+        canvas.drawPath(roof, paint);
+        paint.setColor(Color.rgb(180, 245, 190));
+        canvas.drawCircle(x, y + r * 0.12f, r * 0.38f, paint);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(r * 0.62f);
+        paint.setFakeBoldText(true);
+        paint.setColor(Color.rgb(18, 92, 45));
+        canvas.drawText("$", x, y + r * 0.34f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
     private void drawCar(Canvas canvas, RemoteCar car, int body, int accent, float tile, float originX, float originY, boolean playerCar) {
         float cx = originX + car.x * tile;
         float cy = originY + car.y * tile;
@@ -319,5 +420,12 @@ final class OnlineGameView extends View {
         float y;
         float angle;
         int damage;
+        boolean ghostActive;
+    }
+
+    private static final class RemoteArtifact {
+        String type;
+        int x;
+        int y;
     }
 }

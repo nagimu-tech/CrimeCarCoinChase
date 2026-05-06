@@ -8,6 +8,12 @@ const MAX_DAMAGE = 5;
 const PLAYER_SPEED = 3.0;
 const POLICE_SPEED = 1.35;
 const TICK_MS = 50;
+const BANK_SPAWN_MS = 10000;
+const BANK_VISIBLE_MS = 30000;
+const MEDKIT_VISIBLE_MS = 15000;
+const ARTIFACT_INTERVAL_MS = 15000;
+const ARTIFACT_VISIBLE_MS = 15000;
+const GHOST_MS = 7000;
 
 const rooms = new Map();
 
@@ -161,6 +167,15 @@ function createRoom(difficulty) {
       car(2, WIDTH - 2.5, HEIGHT - 2.5, "NONE"),
     ],
     police: [car(100, WIDTH - 2.5, 1.5, "LEFT"), car(101, 1.5, HEIGHT - 2.5, "RIGHT")],
+    artifacts: [],
+    bankCell: null,
+    bankSpawnAt: Date.now() + BANK_SPAWN_MS,
+    bankExpiresAt: 0,
+    bankRestorePending: false,
+    banknoteEventId: 0,
+    banknoteReward: 0,
+    nextArtifactAt: Date.now() + ARTIFACT_INTERVAL_MS,
+    nextPoliceId: 200,
     score: 0,
     total: 0,
     stage: 1,
@@ -180,6 +195,11 @@ function joinRoom(client, room, playerId) {
   client.playerId = playerId;
   room.clients.push(client);
   room.started = room.clients.length === 2;
+  if (room.started && !room.startedAt) {
+    room.startedAt = Date.now();
+    room.bankSpawnAt = room.startedAt + BANK_SPAWN_MS;
+    room.nextArtifactAt = room.startedAt + ARTIFACT_INTERVAL_MS;
+  }
   room.updatedAt = Date.now();
 }
 
@@ -197,6 +217,7 @@ function removeClient(client) {
 
 function updateRoom(room, delta, now) {
   if (!room.started || room.over) return;
+  updateArtifacts(room, now);
   for (const player of room.players) {
     updatePlayer(room, player, delta);
     collect(room, player);
@@ -218,6 +239,35 @@ function updateRoom(room, delta, now) {
   } else if (room.score >= room.total) {
     room.over = true;
     broadcast(room, { type: "gameOver", message: "Победа: все богатство собрано" });
+  }
+}
+
+function updateArtifacts(room, now) {
+  if (room.bankRestorePending && room.bankCell && !room.players.some((player) => sameCell(player, room.bankCell))) {
+    restoreBankWall(room);
+  }
+  for (let i = room.artifacts.length - 1; i >= 0; i--) {
+    const artifact = room.artifacts[i];
+    if (now >= artifact.expiresAt) {
+      if (artifact.type === "BANK") {
+        if (room.bankCell && room.players.some((player) => sameCell(player, room.bankCell))) {
+          room.bankRestorePending = true;
+        } else {
+          restoreBankWall(room);
+        }
+      }
+      room.artifacts.splice(i, 1);
+    }
+  }
+  if (!room.artifacts.some((item) => item.type === "MEDKIT") && room.players.some((player) => player.damage >= 3)) {
+    spawnMedkit(room, now);
+  }
+  if (room.nextArtifactAt > 0 && now >= room.nextArtifactAt) {
+    spawnGhost(room, now);
+    room.nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
+  }
+  if (!room.bankCell && room.bankSpawnAt > 0 && now >= room.bankSpawnAt) {
+    spawnBank(room, now);
   }
 }
 
@@ -258,16 +308,148 @@ function canMove(grid, actor, dir) {
   const cell = { x: Math.round(actor.x - 0.5), y: Math.round(actor.y - 0.5) };
   const x = cell.x + d.dx;
   const y = cell.y + d.dy;
+  if (Date.now() < (actor.ghostUntil || 0)) {
+    return x > 0 && y > 0 && x < WIDTH - 1 && y < HEIGHT - 1;
+  }
   return x >= 0 && y >= 0 && x < WIDTH && y < HEIGHT && grid[y][x] !== "#";
 }
 
 function collect(room, player) {
   const x = Math.round(player.x - 0.5);
   const y = Math.round(player.y - 0.5);
+  for (let i = room.artifacts.length - 1; i >= 0; i--) {
+    const artifact = room.artifacts[i];
+    if (artifact.x === x && artifact.y === y) {
+      applyArtifact(room, player, artifact);
+      room.artifacts.splice(i, 1);
+    }
+  }
   const item = room.grid[y] && room.grid[y][x];
   if (item === "o" || item === "d") {
     room.score += item === "d" ? 10 : 1;
     room.grid[y][x] = ".";
+  }
+}
+
+function applyArtifact(room, player, artifact) {
+  if (artifact.type === "MEDKIT") {
+    player.damage = Math.max(0, player.damage - 1);
+    return;
+  }
+  if (artifact.type === "BANK") {
+    const reward = bankReward(room.difficulty);
+    room.score += reward.wealth;
+    room.total += reward.wealth;
+    room.banknoteEventId += 1;
+    room.banknoteReward = reward.banknotes;
+    addPolice(room, reward.police);
+    room.bankRestorePending = true;
+    room.bankExpiresAt = 0;
+    return;
+  }
+  if (artifact.type === "GHOST") {
+    player.ghostUntil = Date.now() + GHOST_MS;
+  }
+}
+
+function spawnMedkit(room, now) {
+  const target = room.players.reduce((best, player) => player.damage > best.damage ? player : best, room.players[0]);
+  const candidates = artifactCandidates(room, target, false);
+  if (candidates.length === 0) return;
+  const cell = candidates[Math.floor(Math.random() * candidates.length)];
+  room.artifacts.push({ type: "MEDKIT", x: cell.x, y: cell.y, expiresAt: now + MEDKIT_VISIBLE_MS });
+}
+
+function spawnBank(room, now) {
+  const candidates = [];
+  for (let y = 2; y < HEIGHT - 2; y++) {
+    for (let x = 2; x < WIDTH - 2; x++) {
+      if (room.grid[y][x] === "#" && hasOpenNeighbor(room.grid, x, y)) {
+        candidates.push({ x, y });
+      }
+    }
+  }
+  if (candidates.length === 0) {
+    room.bankSpawnAt = now + BANK_SPAWN_MS;
+    return;
+  }
+  const cell = candidates[Math.floor(Math.random() * candidates.length)];
+  room.bankCell = cell;
+  room.grid[cell.y][cell.x] = ".";
+  room.bankExpiresAt = now + BANK_VISIBLE_MS;
+  room.bankSpawnAt = 0;
+  room.artifacts.push({ type: "BANK", x: cell.x, y: cell.y, expiresAt: room.bankExpiresAt });
+}
+
+function spawnGhost(room, now) {
+  const target = room.players[Math.floor(Math.random() * room.players.length)];
+  const candidates = artifactCandidates(room, target, true);
+  if (candidates.length === 0) return;
+  const cell = candidates[Math.floor(Math.random() * candidates.length)];
+  room.artifacts.push({ type: "GHOST", x: cell.x, y: cell.y, expiresAt: now + ARTIFACT_VISIBLE_MS });
+}
+
+function restoreBankWall(room) {
+  if (room.bankCell) {
+    room.grid[room.bankCell.y][room.bankCell.x] = "#";
+  }
+  room.bankCell = null;
+  room.bankExpiresAt = 0;
+  room.bankRestorePending = false;
+}
+
+function artifactCandidates(room, target, includeDiamonds) {
+  const cell = { x: Math.round(target.x - 0.5), y: Math.round(target.y - 0.5) };
+  const right = cell.x >= WIDTH / 2;
+  const bottom = cell.y >= HEIGHT / 2;
+  const minX = right ? Math.floor(WIDTH / 2) : 1;
+  const maxX = right ? WIDTH - 2 : Math.floor(WIDTH / 2);
+  const minY = bottom ? Math.floor(HEIGHT / 2) : 1;
+  const maxY = bottom ? HEIGHT - 2 : Math.floor(HEIGHT / 2);
+  const candidates = [];
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const item = room.grid[y][x];
+      if ((item === "o" || (includeDiamonds && item === "d")) && Math.abs(x - cell.x) + Math.abs(y - cell.y) >= 2) {
+        candidates.push({ x, y });
+      }
+    }
+  }
+  return candidates;
+}
+
+function hasOpenNeighbor(grid, x, y) {
+  return ["UP", "DOWN", "LEFT", "RIGHT"].some((dir) => {
+    const d = vector(dir);
+    const nx = x + d.dx;
+    const ny = y + d.dy;
+    return nx >= 0 && ny >= 0 && nx < WIDTH && ny < HEIGHT && grid[ny][nx] !== "#";
+  });
+}
+
+function sameCell(actor, cell) {
+  return Math.round(actor.x - 0.5) === cell.x && Math.round(actor.y - 0.5) === cell.y;
+}
+
+function bankReward(difficulty) {
+  if (difficulty === "AMATEUR") return { banknotes: 20, wealth: 100, police: 3 };
+  if (difficulty === "PROFESSIONAL") return { banknotes: 20, wealth: 100, police: 4 };
+  return { banknotes: 10, wealth: 50, police: 2 };
+}
+
+function addPolice(room, count) {
+  const open = [];
+  for (let y = 1; y < HEIGHT - 1; y++) {
+    for (let x = 1; x < WIDTH - 1; x++) {
+      if (room.grid[y][x] !== "#") {
+        open.push({ x, y });
+      }
+    }
+  }
+  for (let i = 0; i < count && open.length > 0; i++) {
+    const index = Math.floor(Math.random() * open.length);
+    const cell = open.splice(index, 1)[0];
+    room.police.push(car(room.nextPoliceId++, cell.x + 0.5, cell.y + 0.5, "LEFT"));
   }
 }
 
@@ -341,7 +523,7 @@ function countWealth(grid) {
 }
 
 function car(id, x, y, dir) {
-  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, invulnerableUntil: 0 };
+  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, invulnerableUntil: 0, ghostUntil: 0 };
 }
 
 function serializeRoom(room) {
@@ -356,6 +538,7 @@ function serializeRoom(room) {
       y: player.y,
       angle: player.angle,
       damage: player.damage,
+      ghostActive: Date.now() < (player.ghostUntil || 0),
     })),
     police: room.police.map((car) => ({
       id: car.id,
@@ -363,6 +546,13 @@ function serializeRoom(room) {
       y: car.y,
       angle: car.angle,
     })),
+    artifacts: room.artifacts.map((artifact) => ({
+      type: artifact.type,
+      x: artifact.x,
+      y: artifact.y,
+    })),
+    banknoteEventId: room.banknoteEventId,
+    banknoteReward: room.banknoteReward,
     score: room.score,
     total: room.total,
     damage: Math.max(...room.players.map((player) => player.damage)),
