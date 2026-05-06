@@ -173,7 +173,6 @@ function createRoom(difficulty) {
     bankExpiresAt: 0,
     bankRestorePending: false,
     banknoteEventId: 0,
-    banknoteReward: 0,
     nextArtifactAt: Date.now() + ARTIFACT_INTERVAL_MS,
     nextPoliceId: 200,
     score: 0,
@@ -345,7 +344,7 @@ function applyArtifact(room, player, artifact) {
     room.score += reward.wealth;
     room.total += reward.wealth;
     room.banknoteEventId += 1;
-    room.banknoteReward = reward.banknotes;
+    broadcast(room, { type: "bankBonus", eventId: room.banknoteEventId, banknotes: reward.banknotes });
     addPolice(room, reward.police);
     room.bankExpiresAt = 0;
     return;
@@ -555,7 +554,7 @@ function serializeRoom(room) {
       y: artifact.y,
     })),
     banknoteEventId: room.banknoteEventId,
-    banknoteReward: room.banknoteReward,
+    banknoteReward: 0,
     score: room.score,
     total: room.total,
     damage: Math.max(...room.players.map((player) => player.damage)),

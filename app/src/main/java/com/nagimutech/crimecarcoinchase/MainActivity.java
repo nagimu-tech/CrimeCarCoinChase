@@ -479,8 +479,9 @@ public final class MainActivity extends Activity implements GameView.Listener {
                     } else if ("state".equals(type)) {
                         JSONObject state = message.getJSONObject("state");
                         onlineView.applyState(state);
-                        int eventId = state.optInt("banknoteEventId", 0);
-                        int reward = state.optInt("banknoteReward", 0);
+                    } else if ("bankBonus".equals(type)) {
+                        int eventId = message.optInt("eventId", 0);
+                        int reward = message.optInt("banknotes", 0);
                         if (eventId > lastOnlineBanknoteEventId && reward > 0) {
                             lastOnlineBanknoteEventId = eventId;
                             addBanknotes(reward);
