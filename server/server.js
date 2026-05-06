@@ -433,7 +433,7 @@ function sameCell(actor, cell) {
 
 function bankReward(difficulty) {
   if (difficulty === "AMATEUR") return { banknotes: 20, wealth: 100, police: 3 };
-  if (difficulty === "PROFESSIONAL") return { banknotes: 20, wealth: 100, police: 4 };
+  if (difficulty === "PRO") return { banknotes: 20, wealth: 100, police: 4 };
   return { banknotes: 10, wealth: 50, police: 2 };
 }
 

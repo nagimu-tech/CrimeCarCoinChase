@@ -867,18 +867,18 @@ final class GameView extends View {
     }
 
     private int banknoteBonus() {
-        return difficulty == Difficulty.AMATEUR || difficulty == Difficulty.PROFESSIONAL ? 20 : 10;
+        return difficulty == Difficulty.AMATEUR || difficulty == Difficulty.PRO ? 20 : 10;
     }
 
     private int bankWealthBonus() {
-        return difficulty == Difficulty.AMATEUR || difficulty == Difficulty.PROFESSIONAL ? 100 : 50;
+        return difficulty == Difficulty.AMATEUR || difficulty == Difficulty.PRO ? 100 : 50;
     }
 
     private int extraPoliceFromBank() {
         if (difficulty == Difficulty.AMATEUR) {
             return 3;
         }
-        if (difficulty == Difficulty.PROFESSIONAL) {
+        if (difficulty == Difficulty.PRO) {
             return 4;
         }
         return 2;
