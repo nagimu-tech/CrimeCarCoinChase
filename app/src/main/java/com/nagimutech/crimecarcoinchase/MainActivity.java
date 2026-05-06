@@ -398,7 +398,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         onlineView = new OnlineGameView(this, colors, new OnlineGameView.Listener() {
             @Override
             public void onDirection(Direction direction) {
-                sendOnline("{\"type\":\"input\",\"direction\":\"" + direction.name() + "\"}");
+                sendOnlineAsync("{\"type\":\"input\",\"direction\":\"" + direction.name() + "\"}");
             }
 
             @Override
@@ -535,6 +535,10 @@ public final class MainActivity extends Activity implements GameView.Listener {
         if (onlineClient != null) {
             onlineClient.sendText(json);
         }
+    }
+
+    private void sendOnlineAsync(String json) {
+        new Thread(() -> sendOnline(json), "crime-car-online-send").start();
     }
 
     private void disconnectOnline() {

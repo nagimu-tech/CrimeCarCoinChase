@@ -155,6 +155,7 @@ final class OnlineGameView extends View {
         canvas.drawColor(colors.background);
         drawMap(canvas);
         drawTopBar(canvas);
+        drawRoomCodeFooter(canvas);
         postInvalidateDelayed(100);
     }
 
@@ -276,15 +277,10 @@ final class OnlineGameView extends View {
             paint.setTextSize(14f * density);
             canvas.drawText("Онлайн", 14f * density, y, paint);
         }
-        if (!roomCode.isEmpty()) {
-            paint.setTextSize(15f * density);
-            paint.setColor(Color.rgb(255, 232, 178));
-            canvas.drawText("Код: " + roomCode, 124f * density, y, paint);
-        }
         paint.setFakeBoldText(false);
         paint.setTextSize(12f * density);
         paint.setColor(Color.rgb(120, 225, 235));
-        float statusX = roomCode.isEmpty() ? 14f * density : 124f * density;
+        float statusX = 14f * density;
         drawSingleLineEllipsized(canvas, status, statusX, 64f * density, getWidth() - statusX - 78f * density);
 
         float size = 54f * density;
@@ -300,6 +296,33 @@ final class OnlineGameView extends View {
         for (int i = 0; i < 3; i++) {
             canvas.drawLine(cx - 13f * density, top + i * 10f * density, cx + 13f * density, top + i * 10f * density, paint);
         }
+    }
+
+    private void drawRoomCodeFooter(Canvas canvas) {
+        if (roomCode.isEmpty()) {
+            return;
+        }
+        String text = "Код комнаты: " + roomCode;
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(15f * density);
+        paint.setFakeBoldText(true);
+        float textWidth = paint.measureText(text);
+        float padX = 16f * density;
+        float height = 34f * density;
+        float bottom = getHeight() - 14f * density;
+        RectF panel = new RectF(
+                Math.max(10f * density, getWidth() / 2f - textWidth / 2f - padX),
+                bottom - height,
+                Math.min(getWidth() - 10f * density, getWidth() / 2f + textWidth / 2f + padX),
+                bottom
+        );
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(165, 0, 0, 0));
+        canvas.drawRoundRect(panel, 14f * density, 14f * density, paint);
+        paint.setColor(Color.rgb(255, 232, 178));
+        canvas.drawText(text, panel.centerX(), panel.centerY() + 5f * density, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
     }
 
     private void drawCenteredStatus(Canvas canvas, float topBar) {
