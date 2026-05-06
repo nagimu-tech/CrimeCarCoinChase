@@ -49,6 +49,7 @@ final class OnlineGameView extends View {
     private int stage = 1;
     private String status = "Подключение...";
     private String roomCode = "";
+    private boolean hasServerState;
     private boolean gestureActive;
     private float gestureStartX;
     private float gestureStartY;
@@ -90,6 +91,7 @@ final class OnlineGameView extends View {
         total = state.optInt("total", total);
         damage = state.optInt("damage", damage);
         status = state.optString("statusText", status);
+        hasServerState = true;
 
         JSONArray rows = state.optJSONArray("grid");
         if (rows != null && mapWidth > 0 && mapHeight > 0) {
@@ -209,10 +211,7 @@ final class OnlineGameView extends View {
     private void drawMap(Canvas canvas) {
         float topBar = 82f * density;
         if (mapWidth <= 0 || mapHeight <= 0 || grid.length == 0) {
-            paint.setColor(Color.WHITE);
-            paint.setTextSize(18f * density);
-            paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText(status, getWidth() / 2f, topBar + 90f * density, paint);
+            drawCenteredStatus(canvas, topBar);
             return;
         }
         float playHeight = Math.max(1f, getHeight() - topBar);
@@ -268,18 +267,25 @@ final class OnlineGameView extends View {
         paint.setTextSize(15f * density);
         paint.setColor(Color.WHITE);
         float y = 34f * density;
-        canvas.drawText("$ " + score + "/" + total, 14f * density, y, paint);
-        canvas.drawText("▱ " + banknotes, 70f * density, 62f * density, paint);
-        canvas.drawText("♥ " + damage + "/" + GameConfig.MAX_DAMAGE, 122f * density, y, paint);
-        canvas.drawText("Поле " + stage, 224f * density, y, paint);
+        if (hasServerState) {
+            canvas.drawText("$ " + score + "/" + total, 14f * density, y, paint);
+            canvas.drawText("♥ " + damage + "/" + GameConfig.MAX_DAMAGE, 124f * density, y, paint);
+            drawSmallBanknote(canvas, 14f * density, 50f * density, 16f * density);
+            canvas.drawText(String.valueOf(banknotes), 38f * density, 63f * density, paint);
+        } else {
+            paint.setTextSize(14f * density);
+            canvas.drawText("Онлайн", 14f * density, y, paint);
+        }
         if (!roomCode.isEmpty()) {
-            paint.setTextSize(13f * density);
-            canvas.drawText("Код: " + roomCode, 14f * density, 62f * density, paint);
+            paint.setTextSize(15f * density);
+            paint.setColor(Color.rgb(255, 232, 178));
+            canvas.drawText("Код: " + roomCode, 124f * density, y, paint);
         }
         paint.setFakeBoldText(false);
         paint.setTextSize(12f * density);
         paint.setColor(Color.rgb(120, 225, 235));
-        canvas.drawText(status, 122f * density, 62f * density, paint);
+        float statusX = roomCode.isEmpty() ? 14f * density : 124f * density;
+        drawSingleLineEllipsized(canvas, status, statusX, 64f * density, getWidth() - statusX - 78f * density);
 
         float size = 54f * density;
         float right = getWidth() - 12f * density;
@@ -294,6 +300,71 @@ final class OnlineGameView extends View {
         for (int i = 0; i < 3; i++) {
             canvas.drawLine(cx - 13f * density, top + i * 10f * density, cx + 13f * density, top + i * 10f * density, paint);
         }
+    }
+
+    private void drawCenteredStatus(Canvas canvas, float topBar) {
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(18f * density);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(false);
+        String[] lines = wrapText(status, getWidth() - 36f * density);
+        float startY = topBar + 92f * density;
+        for (int i = 0; i < lines.length; i++) {
+            canvas.drawText(lines[i], getWidth() / 2f, startY + i * 28f * density, paint);
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private String[] wrapText(String text, float maxWidth) {
+        if (text == null || text.isEmpty()) {
+            return new String[]{""};
+        }
+        List<String> lines = new ArrayList<>();
+        String[] words = text.split(" ");
+        StringBuilder line = new StringBuilder();
+        for (String word : words) {
+            String candidate = line.length() == 0 ? word : line + " " + word;
+            if (paint.measureText(candidate) <= maxWidth || line.length() == 0) {
+                line.setLength(0);
+                line.append(candidate);
+            } else {
+                lines.add(line.toString());
+                line.setLength(0);
+                line.append(word);
+            }
+        }
+        if (line.length() > 0) {
+            lines.add(line.toString());
+        }
+        return lines.toArray(new String[0]);
+    }
+
+    private void drawSingleLineEllipsized(Canvas canvas, String text, float x, float y, float maxWidth) {
+        if (text == null || text.isEmpty() || maxWidth <= 0f) {
+            return;
+        }
+        String value = text;
+        while (value.length() > 1 && paint.measureText(value + "...") > maxWidth) {
+            value = value.substring(0, value.length() - 1);
+        }
+        if (!value.equals(text)) {
+            value += "...";
+        }
+        canvas.drawText(value, x, y, paint);
+    }
+
+    private void drawSmallBanknote(Canvas canvas, float x, float y, float size) {
+        RectF body = new RectF(x, y, x + size * 1.45f, y + size * 0.82f);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(70, 180, 105));
+        canvas.drawRoundRect(body, size * 0.12f, size * 0.12f, paint);
+        paint.setColor(Color.rgb(178, 245, 188));
+        canvas.drawCircle(body.centerX(), body.centerY(), size * 0.22f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(1f, size * 0.07f));
+        paint.setColor(Color.rgb(36, 120, 70));
+        canvas.drawRoundRect(body, size * 0.12f, size * 0.12f, paint);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawCoin(Canvas canvas, float x, float y, float tile) {
