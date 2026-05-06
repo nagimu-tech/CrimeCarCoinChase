@@ -128,6 +128,7 @@ final class OnlineGameView extends View {
                 car.angle = (float) item.optDouble("angle", 0.0);
                 car.damage = item.optInt("damage", 0);
                 car.ghostActive = item.optBoolean("ghostActive", false);
+                car.shieldActive = item.optBoolean("shieldActive", false);
                 target.add(car);
             }
         }
@@ -156,7 +157,7 @@ final class OnlineGameView extends View {
         drawMap(canvas);
         drawTopBar(canvas);
         drawRoomCodeFooter(canvas);
-        postInvalidateDelayed(100);
+        postInvalidateDelayed(16);
     }
 
     @Override
@@ -211,11 +212,12 @@ final class OnlineGameView extends View {
 
     private void drawMap(Canvas canvas) {
         float topBar = 82f * density;
+        float footerSpace = roomCode.isEmpty() ? 0f : 50f * density;
         if (mapWidth <= 0 || mapHeight <= 0 || grid.length == 0) {
             drawCenteredStatus(canvas, topBar);
             return;
         }
-        float playHeight = Math.max(1f, getHeight() - topBar);
+        float playHeight = Math.max(1f, getHeight() - topBar - footerSpace);
         float tile = Math.min(getWidth() / (float) mapWidth, playHeight / (float) mapHeight);
         float originX = (getWidth() - tile * mapWidth) / 2f;
         float originY = topBar + (playHeight - tile * mapHeight) / 2f;
@@ -309,7 +311,7 @@ final class OnlineGameView extends View {
         float textWidth = paint.measureText(text);
         float padX = 16f * density;
         float height = 34f * density;
-        float bottom = getHeight() - 14f * density;
+        float bottom = getHeight() - 4f * density;
         RectF panel = new RectF(
                 Math.max(10f * density, getWidth() / 2f - textWidth / 2f - padX),
                 bottom - height,
@@ -425,22 +427,32 @@ final class OnlineGameView extends View {
             drawMedkitIcon(canvas, x, y, tile);
         } else if ("BANK".equals(artifact.type)) {
             drawBankIcon(canvas, x, y, tile);
+        } else if ("FREEZER".equals(artifact.type) || "SHIELD".equals(artifact.type) || "PORTAL".equals(artifact.type)) {
+            String label = "FREEZER".equals(artifact.type) ? "F" : "SHIELD".equals(artifact.type) ? "S" : "P";
+            int color = "FREEZER".equals(artifact.type) ? Color.rgb(70, 210, 255)
+                    : "SHIELD".equals(artifact.type) ? Color.rgb(77, 230, 116)
+                    : Color.rgb(255, 174, 78);
+            drawLetterArtifact(canvas, x, y, tile, label, color);
         } else if ("GHOST".equals(artifact.type)) {
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.rgb(185, 125, 255));
-            canvas.drawCircle(x, y, tile * 0.28f, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(2f, tile * 0.05f));
-            paint.setColor(Color.WHITE);
-            canvas.drawCircle(x, y, tile * 0.2f, paint);
-            paint.setStyle(Paint.Style.FILL);
-            paint.setTextAlign(Paint.Align.CENTER);
-            paint.setFakeBoldText(true);
-            paint.setTextSize(tile * 0.34f);
-            canvas.drawText("G", x, y + tile * 0.12f, paint);
-            paint.setFakeBoldText(false);
-            paint.setTextAlign(Paint.Align.LEFT);
+            drawLetterArtifact(canvas, x, y, tile, "G", Color.rgb(185, 125, 255));
         }
+    }
+
+    private void drawLetterArtifact(Canvas canvas, float x, float y, float tile, String label, int color) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(color);
+        canvas.drawCircle(x, y, tile * 0.28f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(2f, tile * 0.05f));
+        paint.setColor(Color.WHITE);
+        canvas.drawCircle(x, y, tile * 0.2f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(tile * 0.34f);
+        canvas.drawText(label, x, y + tile * 0.12f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
     }
 
     private void drawMedkitIcon(Canvas canvas, float x, float y, float tile) {
@@ -491,7 +503,15 @@ final class OnlineGameView extends View {
         paint.setColor(Color.argb(80, 0, 0, 0));
         canvas.drawRoundRect(new RectF(-tile * 0.38f, -tile * 0.27f, tile * 0.38f, tile * 0.27f), 6f, 6f, paint);
         paint.setColor(body);
-        canvas.drawRoundRect(new RectF(-tile * 0.36f, -tile * 0.24f, tile * 0.36f, tile * 0.24f), 6f, 6f, paint);
+        RectF carRect = new RectF(-tile * 0.36f, -tile * 0.24f, tile * 0.36f, tile * 0.24f);
+        canvas.drawRoundRect(carRect, 6f, 6f, paint);
+        if (playerCar && car.shieldActive) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(3f, tile * 0.09f));
+            paint.setColor(Color.argb(165, 120, 245, 145));
+            canvas.drawRoundRect(new RectF(carRect.left - tile * 0.08f, carRect.top - tile * 0.08f, carRect.right + tile * 0.08f, carRect.bottom + tile * 0.08f), 8f, 8f, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
         paint.setColor(Color.rgb(16, 20, 27));
         canvas.drawRect(-tile * 0.12f, -tile * 0.22f, tile * 0.08f, tile * 0.22f, paint);
         paint.setColor(accent);
@@ -515,6 +535,7 @@ final class OnlineGameView extends View {
         float angle;
         int damage;
         boolean ghostActive;
+        boolean shieldActive;
     }
 
     private static final class RemoteArtifact {

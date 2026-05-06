@@ -2,17 +2,15 @@ const crypto = require("crypto");
 const http = require("http");
 
 const PORT = Number(process.env.PORT || 8080);
-const WIDTH = 17;
-const HEIGHT = 29;
 const MAX_DAMAGE = 5;
-const PLAYER_SPEED = 3.0;
-const POLICE_SPEED = 1.35;
-const TICK_MS = 50;
+const TICK_MS = 33;
 const BANK_SPAWN_MS = 10000;
 const BANK_VISIBLE_MS = 30000;
 const MEDKIT_VISIBLE_MS = 15000;
 const ARTIFACT_INTERVAL_MS = 15000;
 const ARTIFACT_VISIBLE_MS = 15000;
+const FREEZE_MS = 20000;
+const SHIELD_MS = 20000;
 const GHOST_MS = 7000;
 
 const rooms = new Map();
@@ -60,7 +58,7 @@ setInterval(() => {
   const now = Date.now();
   for (const room of rooms.values()) {
     updateRoom(room, TICK_MS / 1000, now);
-    broadcast(room, { type: "state", state: serializeRoom(room) });
+    broadcastState(room);
     if (room.clients.length === 0 || now - room.updatedAt > 30 * 60 * 1000) {
       rooms.delete(room.code);
     }
@@ -140,7 +138,7 @@ function handleMessage(client, raw) {
     }
     joinRoom(client, room, 2);
     send(client, { type: "joined", code: room.code, playerId: 2 });
-    broadcast(room, { type: "state", state: serializeRoom(room) });
+    broadcastState(room);
     return;
   }
   if (message.type === "input" && client.room) {
@@ -157,33 +155,43 @@ function createRoom(difficulty) {
   do {
     code = String(Math.floor(10000 + Math.random() * 90000));
   } while (rooms.has(code));
+  const size = mapSize(difficulty);
+  const generated = generateMap(size.width, size.height);
   const room = {
     code,
     difficulty,
+    width: size.width,
+    height: size.height,
     clients: [],
-    grid: generateMap(),
+    grid: generated.grid,
     players: [
       car(1, 1.5, 1.5, "NONE"),
-      car(2, WIDTH - 2.5, HEIGHT - 2.5, "NONE"),
+      car(2, size.width - 2.5, size.height - 2.5, "NONE"),
     ],
-    police: [car(100, WIDTH - 2.5, 1.5, "LEFT"), car(101, 1.5, HEIGHT - 2.5, "RIGHT")],
+    police: generated.policeStarts.slice(0, difficultyPoliceCount(difficulty))
+      .map((cell, index) => car(100 + index, cell.x + 0.5, cell.y + 0.5, "NONE")),
     artifacts: [],
     bankCell: null,
     bankSpawnAt: Date.now() + BANK_SPAWN_MS,
     bankExpiresAt: 0,
     bankRestorePending: false,
     banknoteEventId: 0,
+    wealthEventId: 0,
     nextArtifactAt: Date.now() + ARTIFACT_INTERVAL_MS,
     nextPoliceId: 200,
-    score: 0,
+    collected: 0,
+    collectibleTotal: 0,
     total: 0,
+    freezeUntil: 0,
+    crossedTunnels: false,
     stage: 1,
     started: false,
     over: false,
     updatedAt: Date.now(),
   };
   placeDiamonds(room.grid);
-  room.total = countWealth(room.grid);
+  room.collectibleTotal = countWealth(room.grid);
+  room.total = room.collectibleTotal;
   rooms.set(code, room);
   return room;
 }
@@ -226,7 +234,7 @@ function updateRoom(room, delta, now) {
   }
   for (const player of room.players) {
     for (const police of room.police) {
-      if (Math.hypot(player.x - police.x, player.y - police.y) < 0.55 && now > (player.invulnerableUntil || 0)) {
+      if (Math.hypot(player.x - police.x, player.y - police.y) < 0.55 && now > (player.invulnerableUntil || 0) && now > (player.shieldUntil || 0)) {
         player.damage += 1;
         player.invulnerableUntil = now + 1200;
       }
@@ -235,7 +243,7 @@ function updateRoom(room, delta, now) {
   if (room.players.some((player) => player.damage >= MAX_DAMAGE)) {
     room.over = true;
     broadcast(room, { type: "gameOver", message: "Поражение: полиция догнала преступников" });
-  } else if (room.score >= room.total) {
+  } else if (room.collected >= room.collectibleTotal) {
     room.over = true;
     broadcast(room, { type: "gameOver", message: "Победа: все богатство собрано" });
   }
@@ -262,7 +270,7 @@ function updateArtifacts(room, now) {
     spawnMedkit(room, now);
   }
   if (room.nextArtifactAt > 0 && now >= room.nextArtifactAt) {
-    spawnGhost(room, now);
+    spawnRandomArtifact(room, now);
     room.nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
   }
   if (!room.bankCell && room.bankSpawnAt > 0 && now >= room.bankSpawnAt) {
@@ -278,10 +286,11 @@ function updatePlayer(room, player, delta) {
   if (canMove(room.grid, player, player.nextDir)) {
     player.dir = player.nextDir;
   }
-  move(room.grid, player, PLAYER_SPEED, delta);
+  move(room, player, playerSpeed(room.difficulty), delta);
 }
 
 function updatePolice(room, police, delta) {
+  if (Date.now() < room.freezeUntil) return;
   const target = nearestPlayer(room, police);
   if (atCenter(police)) {
     police.x = Math.round(police.x - 0.5) + 0.5;
@@ -290,14 +299,29 @@ function updatePolice(room, police, delta) {
     options.sort((a, b) => distanceAfter(police, a, target) - distanceAfter(police, b, target));
     police.dir = options[0] || police.dir;
   }
-  move(room.grid, police, POLICE_SPEED, delta);
+  move(room, police, policeSpeed(room.difficulty), delta);
 }
 
-function move(grid, actor, speed, delta) {
-  if (actor.dir === "NONE" || !canMove(grid, actor, actor.dir)) return;
+function move(room, actor, speed, delta) {
+  if (actor.dir === "NONE" || !canMove(room.grid, actor, actor.dir)) return;
   const d = vector(actor.dir);
+  const oldX = actor.x;
+  const oldY = actor.y;
   actor.x += d.dx * speed * delta;
   actor.y += d.dy * speed * delta;
+  wrapTunnel(room, actor);
+  if (d.dx !== 0) {
+    const targetX = nextCenter(oldX, d.dx);
+    if ((d.dx > 0 && oldX <= targetX && actor.x >= targetX) || (d.dx < 0 && oldX >= targetX && actor.x <= targetX)) {
+      actor.x = targetX;
+    }
+  }
+  if (d.dy !== 0) {
+    const targetY = nextCenter(oldY, d.dy);
+    if ((d.dy > 0 && oldY <= targetY && actor.y >= targetY) || (d.dy < 0 && oldY >= targetY && actor.y <= targetY)) {
+      actor.y = targetY;
+    }
+  }
   actor.angle = Math.atan2(d.dy, d.dx);
 }
 
@@ -307,10 +331,33 @@ function canMove(grid, actor, dir) {
   const cell = { x: Math.round(actor.x - 0.5), y: Math.round(actor.y - 0.5) };
   const x = cell.x + d.dx;
   const y = cell.y + d.dy;
-  if (Date.now() < (actor.ghostUntil || 0)) {
-    return x > 0 && y > 0 && x < WIDTH - 1 && y < HEIGHT - 1;
+  if (isTunnelRow(grid, cell.y) && y === cell.y && (x < 0 || x >= grid[0].length)) {
+    return true;
   }
-  return x >= 0 && y >= 0 && x < WIDTH && y < HEIGHT && grid[y][x] !== "#";
+  if (Date.now() < (actor.ghostUntil || 0)) {
+    return x > 0 && y > 0 && x < grid[0].length - 1 && y < grid.length - 1;
+  }
+  return x >= 0 && y >= 0 && x < grid[0].length && y < grid.length && grid[y][x] !== "#";
+}
+
+function wrapTunnel(room, actor) {
+  const cell = { x: Math.round(actor.x - 0.5), y: Math.round(actor.y - 0.5) };
+  if (!isTunnelRow(room.grid, cell.y)) return;
+  if (actor.x < 0.5) {
+    actor.x = room.width - 0.5;
+    if (room.crossedTunnels) actor.y = pairedTunnelRow(room, cell.y) + 0.5;
+  } else if (actor.x > room.width - 0.5) {
+    actor.x = 0.5;
+    if (room.crossedTunnels) actor.y = pairedTunnelRow(room, cell.y) + 0.5;
+  }
+}
+
+function isTunnelRow(grid, y) {
+  return y === 5 || y === grid.length - 6;
+}
+
+function pairedTunnelRow(room, y) {
+  return y === 5 ? room.height - 6 : 5;
 }
 
 function collect(room, player) {
@@ -325,8 +372,11 @@ function collect(room, player) {
   }
   const item = room.grid[y] && room.grid[y][x];
   if (item === "o" || item === "d") {
-    room.score += item === "d" ? 10 : 1;
+    const value = item === "d" ? 10 : 1;
+    player.score += value;
+    room.collected += value;
     room.grid[y][x] = ".";
+    sendWealthBonus(room, player.id, value);
   }
 }
 
@@ -341,16 +391,30 @@ function applyArtifact(room, player, artifact) {
     }
     room.bankRestorePending = true;
     const reward = bankReward(room.difficulty);
-    room.score += reward.wealth;
-    room.total += reward.wealth;
+    player.score += reward.wealth;
+    player.bonusTotal += reward.wealth;
     room.banknoteEventId += 1;
-    broadcast(room, { type: "bankBonus", eventId: room.banknoteEventId, banknotes: reward.banknotes });
+    sendToPlayer(room, player.id, { type: "bankBonus", eventId: room.banknoteEventId, banknotes: reward.banknotes });
+    sendWealthBonus(room, player.id, reward.wealth);
     addPolice(room, reward.police);
     room.bankExpiresAt = 0;
     return;
   }
+  if (artifact.type === "FREEZER") {
+    room.freezeUntil = Math.max(room.freezeUntil || 0, Date.now()) + FREEZE_MS;
+    return;
+  }
+  if (artifact.type === "SHIELD") {
+    player.shieldUntil = Math.max(player.shieldUntil || 0, Date.now()) + SHIELD_MS;
+    player.invulnerableUntil = Math.max(player.invulnerableUntil || 0, player.shieldUntil);
+    return;
+  }
   if (artifact.type === "GHOST") {
-    player.ghostUntil = Date.now() + GHOST_MS;
+    player.ghostUntil = Math.max(player.ghostUntil || 0, Date.now()) + GHOST_MS;
+    return;
+  }
+  if (artifact.type === "PORTAL") {
+    room.crossedTunnels = !room.crossedTunnels;
   }
 }
 
@@ -364,8 +428,8 @@ function spawnMedkit(room, now) {
 
 function spawnBank(room, now) {
   const candidates = [];
-  for (let y = 2; y < HEIGHT - 2; y++) {
-    for (let x = 2; x < WIDTH - 2; x++) {
+  for (let y = 2; y < room.height - 2; y++) {
+    for (let x = 2; x < room.width - 2; x++) {
       if (room.grid[y][x] === "#" && hasOpenNeighbor(room.grid, x, y)) {
         candidates.push({ x, y });
       }
@@ -383,12 +447,14 @@ function spawnBank(room, now) {
   room.artifacts.push({ type: "BANK", x: cell.x, y: cell.y, expiresAt: room.bankExpiresAt });
 }
 
-function spawnGhost(room, now) {
+function spawnRandomArtifact(room, now) {
+  const types = ["FREEZER", "SHIELD", "GHOST", "PORTAL"];
   const target = room.players[Math.floor(Math.random() * room.players.length)];
   const candidates = artifactCandidates(room, target, true);
   if (candidates.length === 0) return;
   const cell = candidates[Math.floor(Math.random() * candidates.length)];
-  room.artifacts.push({ type: "GHOST", x: cell.x, y: cell.y, expiresAt: now + ARTIFACT_VISIBLE_MS });
+  const type = types[Math.floor(Math.random() * types.length)];
+  room.artifacts.push({ type, x: cell.x, y: cell.y, expiresAt: now + ARTIFACT_VISIBLE_MS });
 }
 
 function restoreBankWall(room) {
@@ -402,12 +468,12 @@ function restoreBankWall(room) {
 
 function artifactCandidates(room, target, includeDiamonds) {
   const cell = { x: Math.round(target.x - 0.5), y: Math.round(target.y - 0.5) };
-  const right = cell.x >= WIDTH / 2;
-  const bottom = cell.y >= HEIGHT / 2;
-  const minX = right ? Math.floor(WIDTH / 2) : 1;
-  const maxX = right ? WIDTH - 2 : Math.floor(WIDTH / 2);
-  const minY = bottom ? Math.floor(HEIGHT / 2) : 1;
-  const maxY = bottom ? HEIGHT - 2 : Math.floor(HEIGHT / 2);
+  const right = cell.x >= room.width / 2;
+  const bottom = cell.y >= room.height / 2;
+  const minX = right ? Math.floor(room.width / 2) : 1;
+  const maxX = right ? room.width - 2 : Math.floor(room.width / 2);
+  const minY = bottom ? Math.floor(room.height / 2) : 1;
+  const maxY = bottom ? room.height - 2 : Math.floor(room.height / 2);
   const candidates = [];
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
@@ -425,7 +491,7 @@ function hasOpenNeighbor(grid, x, y) {
     const d = vector(dir);
     const nx = x + d.dx;
     const ny = y + d.dy;
-    return nx >= 0 && ny >= 0 && nx < WIDTH && ny < HEIGHT && grid[ny][nx] !== "#";
+    return nx >= 0 && ny >= 0 && nx < grid[0].length && ny < grid.length && grid[ny][nx] !== "#";
   });
 }
 
@@ -441,8 +507,8 @@ function bankReward(difficulty) {
 
 function addPolice(room, count) {
   const open = [];
-  for (let y = 1; y < HEIGHT - 1; y++) {
-    for (let x = 1; x < WIDTH - 1; x++) {
+  for (let y = 1; y < room.height - 1; y++) {
+    for (let x = 1; x < room.width - 1; x++) {
       if (room.grid[y][x] !== "#") {
         open.push({ x, y });
       }
@@ -467,8 +533,15 @@ function distanceAfter(actor, dir, target) {
 }
 
 function atCenter(actor) {
-  return Math.abs(actor.x - (Math.round(actor.x - 0.5) + 0.5)) < 0.08
-    && Math.abs(actor.y - (Math.round(actor.y - 0.5) + 0.5)) < 0.08;
+  return Math.abs(actor.x - (Math.round(actor.x - 0.5) + 0.5)) < 0.003
+    && Math.abs(actor.y - (Math.round(actor.y - 0.5) + 0.5)) < 0.003;
+}
+
+function nextCenter(position, axisDirection) {
+  if (axisDirection > 0) {
+    return Math.floor(position + 0.5) + 0.5;
+  }
+  return Math.ceil(position - 0.5) - 0.5;
 }
 
 function vector(dir) {
@@ -484,35 +557,94 @@ function normalizeDirection(direction) {
   return ["UP", "DOWN", "LEFT", "RIGHT", "NONE"].includes(direction) ? direction : "NONE";
 }
 
-function generateMap() {
-  const grid = Array.from({ length: HEIGHT }, (_, y) =>
-    Array.from({ length: WIDTH }, (_, x) => (x === 0 || y === 0 || x === WIDTH - 1 || y === HEIGHT - 1 ? "#" : "o"))
-  );
-  for (let y = 2; y < HEIGHT - 2; y += 4) {
-    for (let x = 2; x < WIDTH - 2; x += 4) {
-      const w = 1 + Math.floor(Math.random() * 2);
-      const h = 1 + Math.floor(Math.random() * 2);
-      for (let yy = y; yy < Math.min(HEIGHT - 1, y + h); yy++) {
-        for (let xx = x; xx < Math.min(WIDTH - 1, x + w); xx++) {
-          grid[yy][xx] = "#";
-        }
-      }
+function generateMap(width, height) {
+  const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => "#"));
+  const visited = Array.from({ length: height }, () => Array.from({ length: width }, () => false));
+  const stack = [{ x: 1, y: 1 }];
+  visited[1][1] = true;
+  grid[1][1] = "o";
+  while (stack.length > 0) {
+    const current = stack[stack.length - 1];
+    const neighbors = shuffle([
+      { x: current.x + 2, y: current.y },
+      { x: current.x - 2, y: current.y },
+      { x: current.x, y: current.y + 2 },
+      { x: current.x, y: current.y - 2 },
+    ].filter((cell) => cell.x > 0 && cell.x < width - 1 && cell.y > 0 && cell.y < height - 1 && !visited[cell.y][cell.x]));
+    if (neighbors.length === 0) {
+      stack.pop();
+      continue;
+    }
+    const next = neighbors[0];
+    grid[(current.y + next.y) / 2][(current.x + next.x) / 2] = "o";
+    grid[next.y][next.x] = "o";
+    visited[next.y][next.x] = true;
+    stack.push(next);
+  }
+  addExtraPassages(grid, width, height);
+  addTunnelRow(grid, width, 5);
+  addTunnelRow(grid, width, height - 6);
+  const policeStarts = placeStarts(grid, width, height);
+  return { grid, policeStarts };
+}
+
+function addExtraPassages(grid, width, height) {
+  const candidates = [];
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      if (grid[y][x] !== "#") continue;
+      const horizontal = grid[y][x - 1] !== "#" && grid[y][x + 1] !== "#";
+      const vertical = grid[y - 1][x] !== "#" && grid[y + 1][x] !== "#";
+      if (horizontal || vertical) candidates.push({ x, y });
     }
   }
-  grid[1][1] = ".";
-  grid[1][2] = ".";
-  grid[2][1] = ".";
-  grid[HEIGHT - 2][WIDTH - 2] = ".";
-  grid[HEIGHT - 2][WIDTH - 3] = ".";
-  grid[HEIGHT - 3][WIDTH - 2] = ".";
-  return grid;
+  shuffle(candidates);
+  for (let i = 0; i < Math.min(28, candidates.length); i++) {
+    const cell = candidates[i];
+    grid[cell.y][cell.x] = "o";
+  }
+}
+
+function addTunnelRow(grid, width, y) {
+  grid[y][0] = ".";
+  grid[y][width - 1] = ".";
+  if (grid[y][1] === "#") grid[y][1] = "o";
+  if (grid[y][width - 2] === "#") grid[y][width - 2] = "o";
+}
+
+function placeStarts(grid, width, height) {
+  const playerCells = [{ x: 1, y: 1 }, { x: width - 2, y: height - 2 }];
+  for (const cell of playerCells) {
+    grid[cell.y][cell.x] = ".";
+    if (cell.x + 1 < width - 1) grid[cell.y][cell.x + (cell.x === 1 ? 1 : -1)] = ".";
+    if (cell.y + 1 < height - 1) grid[cell.y + (cell.y === 1 ? 1 : -1)][cell.x] = ".";
+  }
+  const open = [];
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      if (grid[y][x] !== "#") open.push({ x, y });
+    }
+  }
+  open.sort((a, b) => distance(b, playerCells[0]) - distance(a, playerCells[0]));
+  const starts = [];
+  for (const cell of open) {
+    if (distance(cell, playerCells[0]) <= 12) continue;
+    if (starts.every((used) => distance(cell, used) > 8)) starts.push(cell);
+    if (starts.length === 4) break;
+  }
+  for (const cell of open) {
+    if (starts.length === 4) break;
+    if (!starts.some((used) => used.x === cell.x && used.y === cell.y)) starts.push(cell);
+  }
+  for (const cell of starts) grid[cell.y][cell.x] = ".";
+  return starts;
 }
 
 function placeDiamonds(grid) {
   let placed = 0;
   while (placed < 8) {
-    const x = 1 + Math.floor(Math.random() * (WIDTH - 2));
-    const y = 1 + Math.floor(Math.random() * (HEIGHT - 2));
+    const x = 1 + Math.floor(Math.random() * (grid[0].length - 2));
+    const y = 1 + Math.floor(Math.random() * (grid.length - 2));
     if (grid[y][x] === "o") {
       grid[y][x] = "d";
       placed++;
@@ -525,13 +657,50 @@ function countWealth(grid) {
 }
 
 function car(id, x, y, dir) {
-  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, invulnerableUntil: 0, ghostUntil: 0 };
+  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, score: 0, bonusTotal: 0, invulnerableUntil: 0, shieldUntil: 0, ghostUntil: 0 };
 }
 
-function serializeRoom(room) {
+function mapSize(difficulty) {
+  if (difficulty === "DEBUT") return { width: 13, height: 21 };
+  if (difficulty === "BEGINNER") return { width: 15, height: 25 };
+  return { width: 17, height: 29 };
+}
+
+function difficultyPoliceCount(difficulty) {
+  if (difficulty === "AMATEUR") return 2;
+  if (difficulty === "PRO") return 3;
+  return 1;
+}
+
+function playerSpeed() {
+  return 3.35;
+}
+
+function policeSpeed(difficulty) {
+  if (difficulty === "DEBUT") return 1.55;
+  if (difficulty === "BEGINNER") return 1.8;
+  if (difficulty === "AMATEUR") return 2.05;
+  if (difficulty === "PRO") return 2.25;
+  return 1.8;
+}
+
+function shuffle(items) {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+function distance(a, b) {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+function serializeRoom(room, playerId) {
+  const viewer = room.players.find((player) => player.id === playerId) || room.players[0];
   return {
-    width: WIDTH,
-    height: HEIGHT,
+    width: room.width,
+    height: room.height,
     stage: room.stage,
     grid: room.grid.map((row) => row.join("")),
     players: room.players.map((player) => ({
@@ -540,6 +709,8 @@ function serializeRoom(room) {
       y: player.y,
       angle: player.angle,
       damage: player.damage,
+      score: player.score,
+      shieldActive: Date.now() < (player.shieldUntil || 0),
       ghostActive: Date.now() < (player.ghostUntil || 0),
     })),
     police: room.police.map((car) => ({
@@ -555,10 +726,10 @@ function serializeRoom(room) {
     })),
     banknoteEventId: room.banknoteEventId,
     banknoteReward: 0,
-    score: room.score,
-    total: room.total,
-    damage: Math.max(...room.players.map((player) => player.damage)),
-    statusText: room.started ? "Онлайн-игра" : "Ожидание второго игрока",
+    score: viewer ? viewer.score : 0,
+    total: room.collectibleTotal + (viewer ? viewer.bonusTotal : 0),
+    damage: viewer ? viewer.damage : Math.max(...room.players.map((player) => player.damage)),
+    statusText: room.started ? "" : "Ожидание второго игрока",
   };
 }
 
@@ -566,6 +737,25 @@ function broadcast(room, message) {
   for (const client of room.clients) {
     send(client, message);
   }
+}
+
+function broadcastState(room) {
+  for (const client of room.clients) {
+    send(client, { type: "state", state: serializeRoom(room, client.playerId) });
+  }
+}
+
+function sendToPlayer(room, playerId, message) {
+  for (const client of room.clients) {
+    if (client.playerId === playerId) {
+      send(client, message);
+    }
+  }
+}
+
+function sendWealthBonus(room, playerId, wealth) {
+  room.wealthEventId += 1;
+  sendToPlayer(room, playerId, { type: "wealthBonus", eventId: room.wealthEventId, wealth, difficulty: room.difficulty });
 }
 
 function send(client, message) {

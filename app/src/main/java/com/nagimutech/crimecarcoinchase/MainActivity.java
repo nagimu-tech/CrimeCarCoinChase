@@ -49,6 +49,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
     private SharedPreferences prefs;
     private Difficulty difficulty = Difficulty.BEGINNER;
     private int lastOnlineBanknoteEventId;
+    private int lastOnlineWealthEventId;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -408,6 +409,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         });
         onlineView.setStatus(joinCode == null ? "Создание комнаты..." : "Вход по коду...");
         lastOnlineBanknoteEventId = 0;
+        lastOnlineWealthEventId = 0;
         onlineView.setBanknotes(banknotes());
         root.removeAllViews();
         root.addView(onlineView, new FrameLayout.LayoutParams(-1, -1));
@@ -486,6 +488,16 @@ public final class MainActivity extends Activity implements GameView.Listener {
                             lastOnlineBanknoteEventId = eventId;
                             addBanknotes(reward);
                             onlineView.setBanknotes(banknotes());
+                        }
+                    } else if ("wealthBonus".equals(type)) {
+                        int eventId = message.optInt("eventId", 0);
+                        int wealth = message.optInt("wealth", 0);
+                        Difficulty rewardDifficulty = parseDifficulty(message.optString("difficulty"), difficulty);
+                        if (eventId > lastOnlineWealthEventId && wealth > 0) {
+                            lastOnlineWealthEventId = eventId;
+                            addWealth(rewardDifficulty, wealth);
+                            recalculateAwardsFromStoredProgress();
+                            refreshAwardHud();
                         }
                     } else if ("gameOver".equals(type)) {
                         onlineView.setStatus(message.optString("message", "Игра завершена"));
@@ -722,6 +734,14 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 .putInt(GameConfig.PREF_TOTAL_WEALTH, prefs.getInt(GameConfig.PREF_TOTAL_WEALTH, 0) + wealth)
                 .putInt(levelWealthKey(difficulty), prefs.getInt(levelWealthKey(difficulty), 0) + wealth)
                 .apply();
+    }
+
+    private Difficulty parseDifficulty(String value, Difficulty fallback) {
+        try {
+            return Difficulty.valueOf(value);
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     private int banknotes() {
