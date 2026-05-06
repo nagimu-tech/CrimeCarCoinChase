@@ -1,7 +1,7 @@
 package com.nagimutech.crimecarcoinchase;
 
 final class GameConfig {
-    static final String APP_VERSION = "2.3.0";
+    static final String APP_VERSION = "2.3.1";
     static final String MULTIPLAYER_WS_URL = "ws://217.114.11.79:8080/game";
     static final int STORAGE_SCHEMA = 1;
     static final String PREFS = "pogonya_za_monetami";

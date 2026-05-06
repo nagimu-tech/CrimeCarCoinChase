@@ -337,13 +337,16 @@ function applyArtifact(room, player, artifact) {
     return;
   }
   if (artifact.type === "BANK") {
+    if (room.bankRestorePending || !room.bankCell) {
+      return;
+    }
+    room.bankRestorePending = true;
     const reward = bankReward(room.difficulty);
     room.score += reward.wealth;
     room.total += reward.wealth;
     room.banknoteEventId += 1;
     room.banknoteReward = reward.banknotes;
     addPolice(room, reward.police);
-    room.bankRestorePending = true;
     room.bankExpiresAt = 0;
     return;
   }

@@ -827,7 +827,7 @@ final class GameView extends View {
                 activeArtifacts.remove(i);
             }
         }
-        if (bankCell != null && cell.equals(bankCell)) {
+        if (bankCell != null && !bankRestorePending && cell.equals(bankCell)) {
             applyArtifact(Artifact.BANK, SystemClock.uptimeMillis());
             bankRestorePending = true;
             bankExpiresAt = 0L;
