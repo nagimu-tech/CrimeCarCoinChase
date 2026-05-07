@@ -4,6 +4,7 @@ const http = require("http");
 const PORT = Number(process.env.PORT || 8080);
 const MAX_DAMAGE = 5;
 const TICK_MS = 33;
+const INVULNERABLE_MS = 3000;
 const BANK_SPAWN_MS = 10000;
 const BANK_VISIBLE_MS = 30000;
 const MEDKIT_VISIBLE_MS = 15000;
@@ -236,7 +237,9 @@ function updateRoom(room, delta, now) {
     for (const police of room.police) {
       if (Math.hypot(player.x - police.x, player.y - police.y) < 0.55 && now > (player.invulnerableUntil || 0) && now > (player.shieldUntil || 0)) {
         player.damage += 1;
-        player.invulnerableUntil = now + 1200;
+        player.invulnerableUntil = now + INVULNERABLE_MS;
+        recoverPoliceAfterHit(room, police, player);
+        break;
       }
     }
   }
@@ -291,6 +294,7 @@ function updatePlayer(room, player, delta) {
 
 function updatePolice(room, police, delta) {
   if (Date.now() < room.freezeUntil) return;
+  recoverIfInWall(room, police);
   const target = nearestPlayer(room, police);
   if (atCenter(police)) {
     police.x = Math.round(police.x - 0.5) + 0.5;
@@ -298,6 +302,8 @@ function updatePolice(room, police, delta) {
     const options = ["UP", "DOWN", "LEFT", "RIGHT"].filter((dir) => canMove(room.grid, police, dir));
     options.sort((a, b) => distanceAfter(police, a, target) - distanceAfter(police, b, target));
     police.dir = options[0] || police.dir;
+  } else if (!canMove(room.grid, police, police.dir)) {
+    recoverIfInWall(room, police);
   }
   move(room, police, policeSpeed(room.difficulty), delta);
 }
@@ -307,6 +313,11 @@ function move(room, actor, speed, delta) {
   const d = vector(actor.dir);
   const oldX = actor.x;
   const oldY = actor.y;
+  if (d.dx !== 0) {
+    actor.y = centerCoordinate(actor.y);
+  } else if (d.dy !== 0) {
+    actor.x = centerCoordinate(actor.x);
+  }
   actor.x += d.dx * speed * delta;
   actor.y += d.dy * speed * delta;
   wrapTunnel(room, actor);
@@ -323,6 +334,11 @@ function move(room, actor, speed, delta) {
     }
   }
   actor.angle = Math.atan2(d.dy, d.dx);
+  recoverIfInWall(room, actor);
+}
+
+function centerCoordinate(value) {
+  return Math.round(value - 0.5) + 0.5;
 }
 
 function canMove(grid, actor, dir) {
@@ -393,6 +409,7 @@ function applyArtifact(room, player, artifact) {
     const reward = bankReward(room.difficulty);
     player.score += reward.wealth;
     player.bonusTotal += reward.wealth;
+    player.banknotes += reward.banknotes;
     room.banknoteEventId += 1;
     sendToPlayer(room, player.id, { type: "bankBonus", eventId: room.banknoteEventId, banknotes: reward.banknotes });
     sendWealthBonus(room, player.id, reward.wealth);
@@ -518,6 +535,43 @@ function addPolice(room, count) {
     const index = Math.floor(Math.random() * open.length);
     const cell = open.splice(index, 1)[0];
     room.police.push(car(room.nextPoliceId++, cell.x + 0.5, cell.y + 0.5, "LEFT"));
+  }
+}
+
+function recoverPoliceAfterHit(room, police, player) {
+  recoverIfInWall(room, police);
+  police.x = centerCoordinate(police.x);
+  police.y = centerCoordinate(police.y);
+  const away = ["UP", "DOWN", "LEFT", "RIGHT"].filter((dir) => canMove(room.grid, police, dir));
+  away.sort((a, b) => distanceAfter(police, b, player) - distanceAfter(police, a, player));
+  police.dir = away[0] || "NONE";
+}
+
+function recoverIfInWall(room, actor) {
+  if (Date.now() < (actor.ghostUntil || 0)) {
+    return;
+  }
+  const cellX = Math.round(actor.x - 0.5);
+  const cellY = Math.round(actor.y - 0.5);
+  if (room.grid[cellY] && room.grid[cellY][cellX] && room.grid[cellY][cellX] !== "#") {
+    return;
+  }
+  let best = null;
+  let bestDistance = Infinity;
+  for (let y = 0; y < room.height; y++) {
+    for (let x = 0; x < room.width; x++) {
+      if (room.grid[y][x] === "#") continue;
+      const candidate = { x: x + 0.5, y: y + 0.5 };
+      const value = Math.hypot(actor.x - candidate.x, actor.y - candidate.y);
+      if (value < bestDistance) {
+        bestDistance = value;
+        best = candidate;
+      }
+    }
+  }
+  if (best) {
+    actor.x = best.x;
+    actor.y = best.y;
   }
 }
 
@@ -657,7 +711,7 @@ function countWealth(grid) {
 }
 
 function car(id, x, y, dir) {
-  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, score: 0, bonusTotal: 0, invulnerableUntil: 0, shieldUntil: 0, ghostUntil: 0 };
+  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, score: 0, bonusTotal: 0, banknotes: 0, invulnerableUntil: 0, shieldUntil: 0, ghostUntil: 0 };
 }
 
 function mapSize(difficulty) {
@@ -702,6 +756,7 @@ function serializeRoom(room, playerId) {
     width: room.width,
     height: room.height,
     stage: room.stage,
+    elapsedSeconds: room.startedAt ? Math.floor((Date.now() - room.startedAt) / 1000) : 0,
     grid: room.grid.map((row) => row.join("")),
     players: room.players.map((player) => ({
       id: player.id,
@@ -710,8 +765,11 @@ function serializeRoom(room, playerId) {
       angle: player.angle,
       damage: player.damage,
       score: player.score,
+      total: room.collectibleTotal + player.bonusTotal,
+      banknotes: player.banknotes || 0,
       shieldActive: Date.now() < (player.shieldUntil || 0),
       ghostActive: Date.now() < (player.ghostUntil || 0),
+      invulnerableActive: Date.now() < (player.invulnerableUntil || 0) && Date.now() >= (player.shieldUntil || 0),
     })),
     police: room.police.map((car) => ({
       id: car.id,

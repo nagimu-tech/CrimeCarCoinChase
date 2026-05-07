@@ -39,7 +39,7 @@ final class GameView extends View {
     private static final int DIAMOND_VALUE = 10;
     private static final int DIAMOND_COUNT = 8;
     private static final float PLAYER_SPEED = 3.12f;
-    private static final long INVULNERABLE_MS = 1200L;
+    private static final long INVULNERABLE_MS = 3000L;
     private static final long ARTIFACT_INTERVAL_MS = 15000L;
     private static final long ARTIFACT_VISIBLE_MS = 15000L;
     private static final long FREEZE_MS = 20000L;

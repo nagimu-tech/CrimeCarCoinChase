@@ -411,6 +411,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         lastOnlineBanknoteEventId = 0;
         lastOnlineWealthEventId = 0;
         onlineView.setBanknotes(banknotes());
+        refreshAwardHud();
         root.removeAllViews();
         root.addView(onlineView, new FrameLayout.LayoutParams(-1, -1));
 
@@ -1096,6 +1097,9 @@ public final class MainActivity extends Activity implements GameView.Listener {
         }
         if (gameView != null) {
             gameView.setAwardSymbols(symbols);
+        }
+        if (onlineView != null) {
+            onlineView.setAwardSymbols(symbols);
         }
     }
 

@@ -19,8 +19,8 @@ android {
         applicationId = "com.nagimutech.crimecarcoinchase"
         minSdk = 23
         targetSdk = 34
-        versionCode = 22
-        versionName = "2.3.5"
+        versionCode = 23
+        versionName = "2.3.6"
     }
 
     buildTypes {
