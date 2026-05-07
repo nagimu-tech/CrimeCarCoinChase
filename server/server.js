@@ -3,7 +3,7 @@ const http = require("http");
 
 const PORT = Number(process.env.PORT || 8080);
 const MAX_DAMAGE = 5;
-const TICK_MS = 33;
+const TICK_MS = 25;
 const INVULNERABLE_MS = 3000;
 const BANK_SPAWN_MS = 10000;
 const BANK_VISIBLE_MS = 30000;
@@ -126,6 +126,19 @@ function handleMessage(client, raw) {
     send(client, { type: "roomCreated", code: room.code, playerId: 1 });
     return;
   }
+  if (message.type === "resumeRoom") {
+    const code = String(message.code || "");
+    const playerId = Number(message.playerId || 0);
+    const room = rooms.get(code);
+    if (!room || !room.players.some((player) => player.id === playerId)) {
+      send(client, { type: "error", message: "Комната уже закрыта" });
+      return;
+    }
+    joinRoom(client, room, playerId);
+    send(client, { type: "joined", code: room.code, playerId });
+    broadcastState(room);
+    return;
+  }
   if (message.type === "joinRoom") {
     const code = String(message.code || "");
     const room = rooms.get(code);
@@ -156,6 +169,7 @@ function createRoom(difficulty) {
   do {
     code = String(Math.floor(10000 + Math.random() * 90000));
   } while (rooms.has(code));
+  difficulty = normalizeDifficulty(difficulty);
   const size = mapSize(difficulty);
   const generated = generateMap(size.width, size.height);
   const room = {
@@ -186,6 +200,11 @@ function createRoom(difficulty) {
     freezeUntil: 0,
     crossedTunnels: false,
     stage: 1,
+    exitPortalOpen: false,
+    exitPortalCell: null,
+    fieldStartedAt: 0,
+    fastFieldCollected: false,
+    rewardedStages: new Set(),
     started: false,
     over: false,
     updatedAt: Date.now(),
@@ -199,12 +218,19 @@ function createRoom(difficulty) {
 
 function joinRoom(client, room, playerId) {
   removeClient(client);
+  for (const existing of room.clients.filter((item) => item.playerId === playerId)) {
+    existing.room = null;
+    existing.playerId = 0;
+    existing.socket.destroy();
+  }
+  room.clients = room.clients.filter((item) => item.playerId !== playerId);
   client.room = room;
   client.playerId = playerId;
   room.clients.push(client);
-  room.started = room.clients.length === 2;
+  room.started = room.started || room.clients.length === 2;
   if (room.started && !room.startedAt) {
     room.startedAt = Date.now();
+    room.fieldStartedAt = room.startedAt;
     room.bankSpawnAt = room.startedAt + BANK_SPAWN_MS;
     room.nextArtifactAt = room.startedAt + ARTIFACT_INTERVAL_MS;
   }
@@ -215,12 +241,9 @@ function removeClient(client) {
   if (!client.room) return;
   const room = client.room;
   room.clients = room.clients.filter((item) => item !== client);
-  broadcast(room, { type: "gameOver", message: "Второй игрок отключился" });
+  broadcast(room, { type: "peerPaused", message: "Второй игрок временно отключился" });
   client.room = null;
   client.playerId = 0;
-  if (room.clients.length === 0) {
-    rooms.delete(room.code);
-  }
 }
 
 function updateRoom(room, delta, now) {
@@ -229,6 +252,7 @@ function updateRoom(room, delta, now) {
   for (const player of room.players) {
     updatePlayer(room, player, delta);
     collect(room, player);
+    checkExitPortal(room, player, now);
   }
   for (const police of room.police) {
     updatePolice(room, police, delta);
@@ -245,10 +269,9 @@ function updateRoom(room, delta, now) {
   }
   if (room.players.some((player) => player.damage >= MAX_DAMAGE)) {
     room.over = true;
-    broadcast(room, { type: "gameOver", message: "Поражение: полиция догнала преступников" });
+    broadcast(room, { type: "gameOver", won: false, message: "Поражение: полиция догнала преступников", result: roomResult(room, false) });
   } else if (room.collected >= room.collectibleTotal) {
-    room.over = true;
-    broadcast(room, { type: "gameOver", message: "Победа: все богатство собрано" });
+    handleStageCompleted(room, now);
   }
 }
 
@@ -286,7 +309,11 @@ function updatePlayer(room, player, delta) {
     player.dir = "NONE";
     return;
   }
-  if (canMove(room.grid, player, player.nextDir)) {
+  if (player.dir === "NONE" && !atCenter(player)) {
+    player.x = centerCoordinate(player.x);
+    player.y = centerCoordinate(player.y);
+  }
+  if (atCenter(player) && canMove(room.grid, player, player.nextDir)) {
     player.dir = player.nextDir;
   }
   move(room, player, playerSpeed(room.difficulty), delta);
@@ -302,14 +329,18 @@ function updatePolice(room, police, delta) {
     const options = ["UP", "DOWN", "LEFT", "RIGHT"].filter((dir) => canMove(room.grid, police, dir));
     options.sort((a, b) => distanceAfter(police, a, target) - distanceAfter(police, b, target));
     police.dir = options[0] || police.dir;
-  } else if (!canMove(room.grid, police, police.dir)) {
-    recoverIfInWall(room, police);
+  } else if (police.dir === "NONE") {
+    police.x = centerCoordinate(police.x);
+    police.y = centerCoordinate(police.y);
+    police.dir = chooseOpenDirection(room, police, target) || "NONE";
   }
   move(room, police, policeSpeed(room.difficulty), delta);
 }
 
 function move(room, actor, speed, delta) {
-  if (actor.dir === "NONE" || !canMove(room.grid, actor, actor.dir)) return;
+  if (actor.dir === "NONE") return;
+  const centered = atCenter(actor);
+  if (centered && !canMove(room.grid, actor, actor.dir)) return;
   const d = vector(actor.dir);
   const oldX = actor.x;
   const oldY = actor.y;
@@ -538,13 +569,127 @@ function addPolice(room, count) {
   }
 }
 
+function handleStageCompleted(room, now) {
+  if (room.exitPortalOpen) {
+    return;
+  }
+  if (room.fieldStartedAt > 0 && now - room.fieldStartedAt < fastFieldLimitMs(room.difficulty)) {
+    room.fastFieldCollected = true;
+  }
+  if (room.difficulty === "DEBUT" || room.stage >= 3) {
+    rewardCompletedField(room);
+    room.over = true;
+    broadcast(room, { type: "gameOver", won: true, message: "Победа: все поля пройдены", result: roomResult(room, true) });
+    return;
+  }
+  openExitPortal(room);
+}
+
+function checkExitPortal(room, player, now) {
+  if (!room.exitPortalOpen || !room.exitPortalCell || !sameCell(player, room.exitPortalCell)) {
+    return;
+  }
+  rewardCompletedField(room);
+  beginNextStage(room, now);
+}
+
+function beginNextStage(room, now) {
+  const size = mapSize(room.difficulty);
+  const generated = generateMap(size.width, size.height);
+  room.width = size.width;
+  room.height = size.height;
+  room.grid = generated.grid;
+  placeDiamonds(room.grid);
+  room.collectibleTotal = countWealth(room.grid);
+  room.total = room.collectibleTotal;
+  room.collected = 0;
+  room.stage += 1;
+  room.exitPortalOpen = false;
+  room.exitPortalCell = null;
+  room.artifacts = [];
+  room.bankCell = null;
+  room.bankRestorePending = false;
+  room.bankSpawnAt = now + BANK_SPAWN_MS;
+  room.bankExpiresAt = 0;
+  room.nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
+  room.freezeUntil = 0;
+  room.crossedTunnels = false;
+  room.fieldStartedAt = now;
+  room.players[0].x = 1.5;
+  room.players[0].y = 1.5;
+  room.players[0].dir = "NONE";
+  room.players[0].nextDir = "NONE";
+  room.players[1].x = size.width - 2.5;
+  room.players[1].y = size.height - 2.5;
+  room.players[1].dir = "NONE";
+  room.players[1].nextDir = "NONE";
+  for (const player of room.players) {
+    player.shieldUntil = 0;
+    player.ghostUntil = 0;
+    player.invulnerableUntil = 0;
+  }
+  room.police = generated.policeStarts.slice(0, difficultyPoliceCount(room.difficulty))
+    .map((cell, index) => car(100 + index, cell.x + 0.5, cell.y + 0.5, "NONE"));
+  broadcast(room, { type: "stageStarted", stage: room.stage });
+}
+
+function openExitPortal(room) {
+  const candidates = [];
+  for (let y = 1; y < room.height - 1; y++) {
+    if (room.grid[y][1] !== "#") candidates.push({ x: 0, y });
+    if (room.grid[y][room.width - 2] !== "#") candidates.push({ x: room.width - 1, y });
+  }
+  for (let x = 1; x < room.width - 1; x++) {
+    if (room.grid[1][x] !== "#") candidates.push({ x, y: 0 });
+    if (room.grid[room.height - 2][x] !== "#") candidates.push({ x, y: room.height - 1 });
+  }
+  if (candidates.length === 0) {
+    rewardCompletedField(room);
+    beginNextStage(room, Date.now());
+    return;
+  }
+  room.exitPortalCell = candidates[Math.floor(Math.random() * candidates.length)];
+  room.grid[room.exitPortalCell.y][room.exitPortalCell.x] = ".";
+  room.exitPortalOpen = true;
+}
+
+function rewardCompletedField(room) {
+  if (room.rewardedStages.has(room.stage)) {
+    return;
+  }
+  room.rewardedStages.add(room.stage);
+  const reward = fieldBanknotes(room.difficulty);
+  for (const player of room.players) {
+    room.banknoteEventId += 1;
+    player.banknotes += reward;
+    sendToPlayer(room, player.id, { type: "fieldBonus", eventId: room.banknoteEventId, banknotes: reward, difficulty: room.difficulty });
+  }
+}
+
+function roomResult(room, won) {
+  const seconds = room.startedAt ? Math.max(1, Math.round((Date.now() - room.startedAt) / 1000)) : 0;
+  return {
+    difficulty: room.difficulty,
+    seconds,
+    won,
+    fastField: room.fastFieldCollected,
+  };
+}
+
 function recoverPoliceAfterHit(room, police, player) {
   recoverIfInWall(room, police);
   police.x = centerCoordinate(police.x);
   police.y = centerCoordinate(police.y);
-  const away = ["UP", "DOWN", "LEFT", "RIGHT"].filter((dir) => canMove(room.grid, police, dir));
-  away.sort((a, b) => distanceAfter(police, b, player) - distanceAfter(police, a, player));
-  police.dir = away[0] || "NONE";
+  police.dir = chooseOpenDirection(room, police, player, true) || "NONE";
+}
+
+function chooseOpenDirection(room, actor, target, away = false) {
+  const options = ["UP", "DOWN", "LEFT", "RIGHT"].filter((dir) => canMove(room.grid, actor, dir));
+  if (options.length === 0) return null;
+  options.sort((a, b) => away
+    ? distanceAfter(actor, b, target) - distanceAfter(actor, a, target)
+    : distanceAfter(actor, a, target) - distanceAfter(actor, b, target));
+  return options[0];
 }
 
 function recoverIfInWall(room, actor) {
@@ -609,6 +754,10 @@ function vector(dir) {
 
 function normalizeDirection(direction) {
   return ["UP", "DOWN", "LEFT", "RIGHT", "NONE"].includes(direction) ? direction : "NONE";
+}
+
+function normalizeDifficulty(difficulty) {
+  return ["DEBUT", "BEGINNER", "AMATEUR", "PRO"].includes(difficulty) ? difficulty : "BEGINNER";
 }
 
 function generateMap(width, height) {
@@ -738,6 +887,20 @@ function policeSpeed(difficulty) {
   return 1.8;
 }
 
+function fieldBanknotes(difficulty) {
+  if (difficulty === "DEBUT") return 5;
+  if (difficulty === "BEGINNER") return 10;
+  if (difficulty === "AMATEUR") return 15;
+  if (difficulty === "PRO") return 20;
+  return 10;
+}
+
+function fastFieldLimitMs(difficulty) {
+  if (difficulty === "DEBUT") return 70000;
+  if (difficulty === "BEGINNER") return 120000;
+  return 180000;
+}
+
 function shuffle(items) {
   for (let i = items.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -756,6 +919,7 @@ function serializeRoom(room, playerId) {
     width: room.width,
     height: room.height,
     stage: room.stage,
+    exitPortal: room.exitPortalOpen && room.exitPortalCell ? room.exitPortalCell : null,
     elapsedSeconds: room.startedAt ? Math.floor((Date.now() - room.startedAt) / 1000) : 0,
     grid: room.grid.map((row) => row.join("")),
     players: room.players.map((player) => ({

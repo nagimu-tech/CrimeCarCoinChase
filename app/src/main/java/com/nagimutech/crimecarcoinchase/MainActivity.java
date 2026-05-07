@@ -50,6 +50,11 @@ public final class MainActivity extends Activity implements GameView.Listener {
     private Difficulty difficulty = Difficulty.BEGINNER;
     private int lastOnlineBanknoteEventId;
     private int lastOnlineWealthEventId;
+    private String onlineRoomCode = "";
+    private int onlinePlayerId;
+    private String onlineJoinCode;
+    private boolean onlineReconnect;
+    private int onlineOtherPlayerColor = Color.rgb(255, 135, 46);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -99,6 +104,15 @@ public final class MainActivity extends Activity implements GameView.Listener {
     protected void onDestroy() {
         disconnectOnline();
         super.onDestroy();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (onlineView != null && !onlineRoomCode.isEmpty() && onlinePlayerId > 0) {
+            onlineReconnect = true;
+            startOnlineSession(GameConfig.MULTIPLAYER_WS_URL, onlineJoinCode);
+        }
     }
 
     @Override
@@ -352,6 +366,11 @@ public final class MainActivity extends Activity implements GameView.Listener {
         join.setAllCaps(false);
         panel.addView(join, new LinearLayout.LayoutParams(-1, dp(48)));
 
+        Button palette = new Button(this);
+        palette.setText("Палитра перед игрой");
+        palette.setAllCaps(false);
+        panel.addView(palette, new LinearLayout.LayoutParams(-1, dp(48)));
+
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Играть вдвоём")
                 .setView(panel)
@@ -362,11 +381,53 @@ public final class MainActivity extends Activity implements GameView.Listener {
             root.removeView(splash);
             startOnlineSession(GameConfig.MULTIPLAYER_WS_URL, null);
         });
+        palette.setOnClickListener(v -> showOnlinePaletteDialog());
         join.setOnClickListener(v -> {
             dialog.dismiss();
             showJoinCodeDialog(splash, GameConfig.MULTIPLAYER_WS_URL);
         });
         dialog.show();
+    }
+
+    private void showOnlinePaletteDialog() {
+        String[] items = {"Фон", "Стены", "Моя машинка", "Машинка второго игрока", "Полиция"};
+        new AlertDialog.Builder(this)
+                .setTitle("Палитра онлайн-игры")
+                .setItems(items, (dialog, which) -> {
+                    if (which == 0) {
+                        showColorDialog("background");
+                    } else if (which == 1) {
+                        showColorDialog("wall");
+                    } else if (which == 2) {
+                        showColorDialog("player");
+                    } else if (which == 3) {
+                        showOtherPlayerColorDialog();
+                    } else {
+                        showColorDialog("police");
+                    }
+                })
+                .show();
+    }
+
+    private void showOtherPlayerColorDialog() {
+        String[] labels = {"Оранжевый", "Синий", "Фиолетовый", "Красный", "Зеленый", "Желтый"};
+        int[] values = {
+                Color.rgb(255, 135, 46),
+                Color.rgb(47, 125, 225),
+                Color.rgb(143, 61, 112),
+                Color.rgb(217, 54, 54),
+                Color.rgb(48, 155, 96),
+                Color.rgb(245, 200, 75)
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("Машинка второго игрока")
+                .setItems(labels, (dialog, which) -> {
+                    onlineOtherPlayerColor = values[which];
+                    if (onlineView != null) {
+                        onlineView.setOtherPlayerColor(onlineOtherPlayerColor);
+                    }
+                })
+                .show();
     }
 
     private void showJoinCodeDialog(FrameLayout splash, String url) {
@@ -395,25 +456,39 @@ public final class MainActivity extends Activity implements GameView.Listener {
     }
 
     private void startOnlineSession(String url, String joinCode) {
-        disconnectOnline();
-        onlineView = new OnlineGameView(this, colors, new OnlineGameView.Listener() {
-            @Override
-            public void onDirection(Direction direction) {
-                sendOnlineAsync("{\"type\":\"input\",\"direction\":\"" + direction.name() + "\"}");
-            }
+        boolean reconnecting = onlineReconnect && onlineView != null && !onlineRoomCode.isEmpty() && onlinePlayerId > 0;
+        onlineReconnect = false;
+        if (!reconnecting) {
+            disconnectOnline();
+        } else if (onlineClient != null) {
+            onlineClient.close();
+            onlineClient = null;
+        }
+        onlineJoinCode = joinCode;
+        if (onlineView == null) {
+            onlineView = new OnlineGameView(this, colors, new OnlineGameView.Listener() {
+                @Override
+                public void onDirection(Direction direction) {
+                    sendOnlineAsync("{\"type\":\"input\",\"direction\":\"" + direction.name() + "\"}");
+                }
 
-            @Override
-            public void onMenuRequested() {
-                showOnlineMenu();
-            }
-        });
-        onlineView.setStatus(joinCode == null ? "Создание комнаты..." : "Вход по коду...");
+                @Override
+                public void onMenuRequested() {
+                    showOnlineMenu();
+                }
+            });
+        }
+        onlineView.setOtherPlayerColor(onlineOtherPlayerColor);
+        onlineView.resetInputState();
+        onlineView.setStatus(reconnecting ? "Повторное подключение..." : joinCode == null ? "Создание комнаты..." : "Вход по коду...");
         lastOnlineBanknoteEventId = 0;
         lastOnlineWealthEventId = 0;
         onlineView.setBanknotes(banknotes());
         refreshAwardHud();
-        root.removeAllViews();
-        root.addView(onlineView, new FrameLayout.LayoutParams(-1, -1));
+        if (!reconnecting) {
+            root.removeAllViews();
+            root.addView(onlineView, new FrameLayout.LayoutParams(-1, -1));
+        }
 
         onlineClient = new SimpleWebSocketClient(url, new SimpleWebSocketClient.Listener() {
             @Override
@@ -423,7 +498,9 @@ public final class MainActivity extends Activity implements GameView.Listener {
                         onlineView.setStatus("Соединение установлено");
                     }
                 });
-                if (joinCode == null) {
+                if (reconnecting && !onlineRoomCode.isEmpty() && onlinePlayerId > 0) {
+                    sendOnline("{\"type\":\"resumeRoom\",\"code\":\"" + onlineRoomCode + "\",\"playerId\":" + onlinePlayerId + "}");
+                } else if (joinCode == null) {
                     sendOnline("{\"type\":\"createRoom\",\"difficulty\":\"" + difficulty.name() + "\"}");
                 } else {
                     sendOnline("{\"type\":\"joinRoom\",\"code\":\"" + joinCode + "\"}");
@@ -438,6 +515,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
             @Override
             public void onClosed(String reason) {
                 runOnUiThread(() -> {
+                    onlineClient = null;
                     if (onlineView != null) {
                         onlineView.setStatus("Соединение закрыто");
                     }
@@ -447,6 +525,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
             @Override
             public void onError(String message) {
                 runOnUiThread(() -> {
+                    onlineClient = null;
                     if (onlineView != null) {
                         onlineView.setStatus("Ошибка сети: " + message);
                     }
@@ -471,18 +550,22 @@ public final class MainActivity extends Activity implements GameView.Listener {
                     }
                     if ("roomCreated".equals(type)) {
                         String code = message.optString("code");
+                        onlineRoomCode = code;
+                        onlinePlayerId = message.optInt("playerId", 1);
                         onlineView.setRoomCode(code);
-                        onlineView.setPlayerId(message.optInt("playerId", 1));
+                        onlineView.setPlayerId(onlinePlayerId);
                         onlineView.setStatus("Ожидание второго игрока");
                         showRoomCodeDialog(code);
                     } else if ("joined".equals(type)) {
-                        onlineView.setRoomCode(message.optString("code"));
-                        onlineView.setPlayerId(message.optInt("playerId", 2));
+                        onlineRoomCode = message.optString("code");
+                        onlinePlayerId = message.optInt("playerId", 2);
+                        onlineView.setRoomCode(onlineRoomCode);
+                        onlineView.setPlayerId(onlinePlayerId);
                         onlineView.setStatus("Игрок подключился");
                     } else if ("state".equals(type)) {
                         JSONObject state = message.getJSONObject("state");
                         onlineView.applyState(state);
-                    } else if ("bankBonus".equals(type)) {
+                    } else if ("bankBonus".equals(type) || "fieldBonus".equals(type)) {
                         int eventId = message.optInt("eventId", 0);
                         int reward = message.optInt("banknotes", 0);
                         if (eventId > lastOnlineBanknoteEventId && reward > 0) {
@@ -502,6 +585,15 @@ public final class MainActivity extends Activity implements GameView.Listener {
                         }
                     } else if ("gameOver".equals(type)) {
                         onlineView.setStatus(message.optString("message", "Игра завершена"));
+                        GameResult result = onlineResult(message.optBoolean("won", false), message.optJSONObject("result"));
+                        if (result.won) {
+                            saveWin(result);
+                            showWinDialog(result);
+                        } else {
+                            onLose(result);
+                        }
+                    } else if ("peerPaused".equals(type)) {
+                        onlineView.setStatus(message.optString("message", "Второй игрок временно отключился"));
                     } else if ("error".equals(type)) {
                         onlineView.setStatus("Ошибка: " + message.optString("message"));
                         Toast.makeText(this, message.optString("message"), Toast.LENGTH_LONG).show();
@@ -517,6 +609,13 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 }
             });
         }
+    }
+
+    private GameResult onlineResult(boolean won, JSONObject raw) {
+        Difficulty resultDifficulty = raw == null ? difficulty : parseDifficulty(raw.optString("difficulty"), difficulty);
+        int seconds = raw == null ? onlineView.elapsedSeconds() : raw.optInt("seconds", onlineView.elapsedSeconds());
+        boolean fastField = raw != null && raw.optBoolean("fastField", false);
+        return new GameResult(resultDifficulty, onlineView.myScore(), onlineView.myTotal(), Math.max(1, seconds), onlineView.myDamage(), System.currentTimeMillis() - Math.max(1, seconds) * 1000L, fastField, won);
     }
 
     private void showRoomCodeDialog(String code) {

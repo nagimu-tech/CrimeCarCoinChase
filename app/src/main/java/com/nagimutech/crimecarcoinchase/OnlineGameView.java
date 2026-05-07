@@ -51,6 +51,7 @@ final class OnlineGameView extends View {
     private int banknotes;
     private int stage = 1;
     private int elapsedSeconds;
+    private RemoteArtifact exitPortal;
     private String status = "Подключение...";
     private String roomCode = "";
     private boolean hasServerState;
@@ -59,6 +60,7 @@ final class OnlineGameView extends View {
     private float gestureStartY;
     private Direction lastSent = Direction.NONE;
     private List<String> awardSymbols = new ArrayList<>();
+    private int otherPlayerColor = Color.rgb(255, 135, 46);
 
     OnlineGameView(Context context, GameColors colors, Listener listener) {
         super(context);
@@ -93,6 +95,35 @@ final class OnlineGameView extends View {
         invalidate();
     }
 
+    void setOtherPlayerColor(int color) {
+        this.otherPlayerColor = color;
+        invalidate();
+    }
+
+    void resetInputState() {
+        gestureActive = false;
+        lastSent = Direction.NONE;
+    }
+
+    int myScore() {
+        RemoteCar me = me();
+        return me == null ? score : me.score;
+    }
+
+    int myTotal() {
+        RemoteCar me = me();
+        return me == null ? total : me.total;
+    }
+
+    int myDamage() {
+        RemoteCar me = me();
+        return me == null ? damage : me.damage;
+    }
+
+    int elapsedSeconds() {
+        return elapsedSeconds;
+    }
+
     void applyState(JSONObject state) {
         mapWidth = state.optInt("width", mapWidth);
         mapHeight = state.optInt("height", mapHeight);
@@ -103,6 +134,15 @@ final class OnlineGameView extends View {
         elapsedSeconds = state.optInt("elapsedSeconds", elapsedSeconds);
         status = state.optString("statusText", status);
         hasServerState = true;
+        JSONObject portal = state.optJSONObject("exitPortal");
+        if (portal != null) {
+            exitPortal = new RemoteArtifact();
+            exitPortal.type = "EXIT";
+            exitPortal.x = portal.optInt("x", 0);
+            exitPortal.y = portal.optInt("y", 0);
+        } else {
+            exitPortal = null;
+        }
 
         JSONArray rows = state.optJSONArray("grid");
         if (rows != null && mapWidth > 0 && mapHeight > 0) {
@@ -151,12 +191,14 @@ final class OnlineGameView extends View {
                 car.targetAngle = angle;
                 target.add(car);
             } else {
-                car.x = x;
-                car.y = y;
-                car.angle = angle;
                 car.targetX = x;
                 car.targetY = y;
                 car.targetAngle = angle;
+                if (Math.abs(car.x - x) > 1.2f || Math.abs(car.y - y) > 1.2f) {
+                    car.x = x;
+                    car.y = y;
+                    car.angle = angle;
+                }
             }
             car.damage = item.optInt("damage", 0);
             car.score = item.optInt("score", 0);
@@ -201,6 +243,7 @@ final class OnlineGameView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        advanceCars();
         canvas.drawColor(colors.background);
         drawMap(canvas);
         drawTopBar(canvas);
@@ -219,15 +262,15 @@ final class OnlineGameView extends View {
     }
 
     private void advanceCar(RemoteCar car) {
-        float factor = 1f;
+        float factor = 0.62f;
         car.x += (car.targetX - car.x) * factor;
         car.y += (car.targetY - car.y) * factor;
         float diff = normalizeAngle(car.targetAngle - car.angle);
         car.angle += diff * factor;
-        if (Math.abs(car.x - car.targetX) < 0.01f) {
+        if (Math.abs(car.x - car.targetX) < 0.004f) {
             car.x = car.targetX;
         }
-        if (Math.abs(car.y - car.targetY) < 0.01f) {
+        if (Math.abs(car.y - car.targetY) < 0.004f) {
             car.y = car.targetY;
         }
         if (Math.abs(diff) < 0.01f) {
@@ -327,6 +370,9 @@ final class OnlineGameView extends View {
                         drawDiamond(canvas, left + tile / 2f, top + tile / 2f, tile);
                     }
                 }
+                if (exitPortal != null && exitPortal.x == x && exitPortal.y == y) {
+                    drawExitPortal(canvas, left + tile / 2f, top + tile / 2f, tile);
+                }
             }
         }
 
@@ -337,7 +383,7 @@ final class OnlineGameView extends View {
             drawCar(canvas, car, colors.police, Color.rgb(201, 223, 255), tile, originX, originY, false);
         }
         for (RemoteCar car : players) {
-            int body = car.id == playerId ? colors.player : Color.rgb(255, 135, 46);
+            int body = car.id == playerId ? colors.player : otherPlayerColor;
             if (car.ghostActive) {
                 body = Color.argb(170, Color.red(body), Color.green(body), Color.blue(body));
             }
@@ -905,6 +951,21 @@ final class OnlineGameView extends View {
         canvas.drawText(label, x, y + tile * 0.12f, paint);
         paint.setFakeBoldText(false);
         paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawExitPortal(Canvas canvas, float x, float y, float tile) {
+        float pulse = 0.78f + 0.22f * (float) Math.sin(SystemClock.uptimeMillis() / 90.0);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(255, 240, 120));
+        canvas.drawCircle(x, y, tile * 0.34f * pulse, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(3f, tile * 0.07f));
+        paint.setColor(Color.WHITE);
+        canvas.drawCircle(x, y, tile * 0.24f, paint);
+        paint.setStrokeWidth(Math.max(2f, tile * 0.04f));
+        paint.setColor(Color.rgb(120, 235, 255));
+        canvas.drawCircle(x, y, tile * 0.43f * (1.05f - pulse * 0.15f), paint);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawMedkitIcon(Canvas canvas, float x, float y, float tile) {
