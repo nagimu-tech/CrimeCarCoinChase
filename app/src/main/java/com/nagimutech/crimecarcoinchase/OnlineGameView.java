@@ -1,11 +1,14 @@
 package com.nagimutech.crimecarcoinchase;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.View;
@@ -14,7 +17,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 final class OnlineGameView extends View {
     interface Listener {
@@ -34,6 +39,7 @@ final class OnlineGameView extends View {
     private final List<RemoteCar> players = new ArrayList<>();
     private final List<RemoteCar> police = new ArrayList<>();
     private final List<RemoteArtifact> artifacts = new ArrayList<>();
+    private final Map<String, Bitmap> bitmapIcons = new HashMap<>();
     private RectF menuRect = new RectF();
     private int[][] grid = new int[0][0];
     private int mapWidth;
@@ -145,14 +151,12 @@ final class OnlineGameView extends View {
                 car.targetAngle = angle;
                 target.add(car);
             } else {
+                car.x = x;
+                car.y = y;
+                car.angle = angle;
                 car.targetX = x;
                 car.targetY = y;
                 car.targetAngle = angle;
-                if (Math.hypot(car.x - x, car.y - y) > 1.5) {
-                    car.x = x;
-                    car.y = y;
-                    car.angle = angle;
-                }
             }
             car.damage = item.optInt("damage", 0);
             car.score = item.optInt("score", 0);
@@ -197,7 +201,6 @@ final class OnlineGameView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        advanceCars();
         canvas.drawColor(colors.background);
         drawMap(canvas);
         drawTopBar(canvas);
@@ -216,7 +219,7 @@ final class OnlineGameView extends View {
     }
 
     private void advanceCar(RemoteCar car) {
-        float factor = 0.42f;
+        float factor = 1f;
         car.x += (car.targetX - car.x) * factor;
         car.y += (car.targetY - car.y) * factor;
         float diff = normalizeAngle(car.targetAngle - car.angle);
@@ -311,10 +314,10 @@ final class OnlineGameView extends View {
                 float left = originX + x * tile;
                 float top = originY + y * tile;
                 if (grid[y][x] == WALL) {
-                    paint.setColor(colors.wall);
-                    canvas.drawRect(left, top, left + tile, top + tile, paint);
-                    paint.setColor(colors.lighten(colors.wall, 36));
-                    canvas.drawRect(left + tile * 0.08f, top + tile * 0.08f, left + tile * 0.92f, top + tile * 0.2f, paint);
+                    paint.setShader(new LinearGradient(left, top, left, top + tile, colors.lighten(colors.wall, 52), colors.wall, Shader.TileMode.CLAMP));
+                    float inset = Math.max(0.5f, tile * 0.025f);
+                    canvas.drawRect(left + inset, top + inset, left + tile - inset, top + tile - inset, paint);
+                    paint.setShader(null);
                 } else {
                     paint.setColor(colors.road);
                     canvas.drawRect(left, top, left + tile, top + tile, paint);
@@ -362,16 +365,17 @@ final class OnlineGameView extends View {
             int meTotal = me == null ? total : me.total;
             int meDamage = me == null ? damage : me.damage;
             float x = 14f * density;
-            drawMoneyBagIcon(canvas, x, baseline - 16f * density, 18f * density);
+            float icon = 18f * density;
+            drawBitmapIcon(canvas, "wealth", x, baseline - icon + 3f * density, icon);
             canvas.drawText(meScore + "/" + meTotal, x + 24f * density, baseline, paint);
             x += 118f * density;
-            drawDamageIcon(canvas, x, baseline - 18f * density, 19f * density);
+            drawBitmapIcon(canvas, "damage", x, baseline - icon + 3f * density, icon);
             canvas.drawText(meDamage + "/" + GameConfig.MAX_DAMAGE, x + 25f * density, baseline, paint);
             x += 104f * density;
-            drawClockIcon(canvas, x, baseline - 17f * density, 18f * density);
+            drawBitmapIcon(canvas, "time", x, baseline - icon + 3f * density, icon);
             canvas.drawText(formatTime(elapsedSeconds), x + 24f * density, baseline, paint);
             x = 14f * density;
-            drawSmallBanknote(canvas, x, 58f * density, 17f * density);
+            drawBitmapIcon(canvas, "banknote", x, 58f * density, 18f * density);
             canvas.drawText(String.valueOf(banknotes), x + 28f * density, 72f * density, paint);
             drawEffectBadges(canvas, me, x + 86f * density, 72f * density, getWidth() - 92f * density);
             drawAwardBadges(canvas, x, 88f * density, getWidth() - 82f * density);
@@ -413,13 +417,14 @@ final class OnlineGameView extends View {
         paint.setColor(Color.WHITE);
         float baseline = top + 34f * density;
         float x = 14f * density;
-        drawMoneyBagIcon(canvas, x, baseline - 16f * density, 18f * density);
+        float icon = 18f * density;
+        drawBitmapIcon(canvas, "wealth", x, baseline - icon + 3f * density, icon);
         canvas.drawText(other.score + "/" + other.total, x + 24f * density, baseline, paint);
         x += 118f * density;
-        drawSmallBanknote(canvas, x, baseline - 16f * density, 17f * density);
+        drawBitmapIcon(canvas, "banknote", x, baseline - icon + 3f * density, icon);
         canvas.drawText(String.valueOf(other.banknotes), x + 28f * density, baseline, paint);
         x += 96f * density;
-        drawDamageIcon(canvas, x, baseline - 18f * density, 19f * density);
+        drawBitmapIcon(canvas, "damage", x, baseline - icon + 3f * density, icon);
         canvas.drawText(other.damage + "/" + GameConfig.MAX_DAMAGE, x + 25f * density, baseline, paint);
         drawEffectBadges(canvas, other, x + 86f * density, baseline, getWidth() - 18f * density);
         paint.setFakeBoldText(false);
@@ -542,6 +547,216 @@ final class OnlineGameView extends View {
         paint.setStyle(Paint.Style.FILL);
     }
 
+    private void drawBitmapIcon(Canvas canvas, String type, float x, float y, float size) {
+        Bitmap bitmap = bitmapIcon(type, Math.max(24, Math.round(size * 2f)));
+        canvas.drawBitmap(bitmap, null, new RectF(x, y, x + size, y + size), paint);
+    }
+
+    private Bitmap bitmapIcon(String type, int size) {
+        String key = type + "_" + size;
+        Bitmap cached = bitmapIcons.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas iconCanvas = new Canvas(bitmap);
+        Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float s = size;
+        float cx = s / 2f;
+        float cy = s / 2f;
+        if ("wealth".equals(type)) {
+            drawMoneyBagIcon(iconCanvas, iconPaint, cx, cy, s * 0.42f, Color.rgb(248, 205, 78), Color.rgb(86, 61, 28));
+        } else if ("banknote".equals(type)) {
+            drawBanknoteIcon(iconCanvas, iconPaint, cx, cy, s * 0.42f);
+        } else if ("damage".equals(type)) {
+            drawCrackedShieldIcon(iconCanvas, iconPaint, cx, cy, s * 0.43f);
+        } else if ("time".equals(type)) {
+            drawClockIcon(iconCanvas, iconPaint, cx, cy, s * 0.42f);
+        } else if ("medkit".equals(type)) {
+            drawMedkitIcon(iconCanvas, iconPaint, cx, cy, s * 0.42f);
+        } else if ("bank".equals(type)) {
+            drawBankIcon(iconCanvas, iconPaint, cx, cy, s * 0.42f);
+        } else if (type.startsWith("award_")) {
+            drawAwardIconBitmap(iconCanvas, iconPaint, type.substring("award_".length()), cx, cy, s * 0.43f);
+        }
+        bitmapIcons.put(key, bitmap);
+        return bitmap;
+    }
+
+    private void drawAwardIconBitmap(Canvas canvas, Paint p, String id, float cx, float cy, float r) {
+        int rim = Color.rgb(255, 238, 160);
+        int fill = Color.rgb(244, 194, 70);
+        if (id.startsWith("debut")) {
+            fill = Color.rgb(196, 210, 225);
+        } else if (id.startsWith("amateur")) {
+            fill = Color.rgb(150, 230, 238);
+        } else if (id.startsWith("late")) {
+            fill = Color.rgb(126, 150, 245);
+        } else if (id.startsWith("flash")) {
+            fill = Color.rgb(255, 80, 54);
+        }
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(fill);
+        canvas.drawCircle(cx, cy, r, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(r * 0.14f);
+        p.setColor(rim);
+        canvas.drawCircle(cx, cy, r * 0.82f, p);
+        p.setStyle(Paint.Style.FILL);
+        if (id.startsWith("pro")) {
+            drawIngotsIcon(canvas, p, cx, cy, r, Color.rgb(80, 53, 18));
+        } else if (id.startsWith("early")) {
+            drawBirdIcon(canvas, p, cx, cy, r, Color.rgb(82, 48, 18), true);
+        } else if (id.startsWith("late")) {
+            drawBirdIcon(canvas, p, cx, cy, r, Color.rgb(25, 32, 70), false);
+        } else if (id.startsWith("flash")) {
+            drawLightningIcon(canvas, p, cx, cy, r, Color.WHITE);
+        } else {
+            drawMoneyBagIcon(canvas, p, cx, cy, r * 0.82f, Color.rgb(70, 48, 24), Color.rgb(70, 48, 24));
+        }
+    }
+
+    private void drawMoneyBagIcon(Canvas canvas, Paint p, float cx, float cy, float r, int fill, int detail) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(fill);
+        canvas.drawOval(cx - r * 0.68f, cy - r * 0.2f, cx + r * 0.68f, cy + r * 0.72f, p);
+        canvas.drawRect(cx - r * 0.28f, cy - r * 0.62f, cx + r * 0.28f, cy - r * 0.2f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(r * 0.12f);
+        p.setColor(detail);
+        canvas.drawLine(cx - r * 0.46f, cy - r * 0.18f, cx + r * 0.46f, cy - r * 0.18f, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(r * 0.78f);
+        p.setFakeBoldText(true);
+        canvas.drawText("$", cx, cy + r * 0.36f, p);
+        p.setFakeBoldText(false);
+        p.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawBanknoteIcon(Canvas canvas, Paint p, float cx, float cy, float r) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(58, 174, 92));
+        RectF rect = new RectF(cx - r * 0.95f, cy - r * 0.58f, cx + r * 0.95f, cy + r * 0.58f);
+        canvas.drawRoundRect(rect, r * 0.14f, r * 0.14f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(r * 0.1f);
+        p.setColor(Color.rgb(190, 245, 195));
+        canvas.drawRoundRect(new RectF(cx - r * 0.74f, cy - r * 0.39f, cx + r * 0.74f, cy + r * 0.39f), r * 0.1f, r * 0.1f, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(r * 0.72f);
+        p.setFakeBoldText(true);
+        p.setColor(Color.rgb(16, 85, 42));
+        canvas.drawText("$", cx, cy + r * 0.25f, p);
+        p.setFakeBoldText(false);
+        p.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawCrackedShieldIcon(Canvas canvas, Paint p, float cx, float cy, float r) {
+        Path shield = new Path();
+        shield.moveTo(cx, cy - r);
+        shield.lineTo(cx + r * 0.76f, cy - r * 0.62f);
+        shield.lineTo(cx + r * 0.55f, cy + r * 0.45f);
+        shield.lineTo(cx, cy + r);
+        shield.lineTo(cx - r * 0.55f, cy + r * 0.45f);
+        shield.lineTo(cx - r * 0.76f, cy - r * 0.62f);
+        shield.close();
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(235, 82, 80));
+        canvas.drawPath(shield, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(r * 0.15f);
+        p.setColor(Color.WHITE);
+        Path crack = new Path();
+        crack.moveTo(cx + r * 0.08f, cy - r * 0.72f);
+        crack.lineTo(cx - r * 0.12f, cy - r * 0.18f);
+        crack.lineTo(cx + r * 0.12f, cy - r * 0.02f);
+        crack.lineTo(cx - r * 0.08f, cy + r * 0.52f);
+        canvas.drawPath(crack, p);
+    }
+
+    private void drawClockIcon(Canvas canvas, Paint p, float cx, float cy, float r) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(88, 180, 232));
+        canvas.drawCircle(cx, cy, r, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(r * 0.14f);
+        p.setColor(Color.WHITE);
+        canvas.drawCircle(cx, cy, r * 0.74f, p);
+        canvas.drawLine(cx, cy, cx, cy - r * 0.46f, p);
+        canvas.drawLine(cx, cy, cx + r * 0.38f, cy + r * 0.25f, p);
+    }
+
+    private void drawMedkitIcon(Canvas canvas, Paint p, float cx, float cy, float r) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(240, 245, 248));
+        RectF body = new RectF(cx - r * 0.82f, cy - r * 0.52f, cx + r * 0.82f, cy + r * 0.66f);
+        canvas.drawRoundRect(body, r * 0.18f, r * 0.18f, p);
+        p.setColor(Color.rgb(210, 42, 52));
+        canvas.drawRoundRect(cx - r * 0.18f, cy - r * 0.38f, cx + r * 0.18f, cy + r * 0.5f, r * 0.05f, r * 0.05f, p);
+        canvas.drawRoundRect(cx - r * 0.48f, cy - r * 0.08f, cx + r * 0.48f, cy + r * 0.2f, r * 0.05f, r * 0.05f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(r * 0.12f);
+        p.setColor(Color.rgb(210, 42, 52));
+        canvas.drawRoundRect(cx - r * 0.36f, cy - r * 0.86f, cx + r * 0.36f, cy - r * 0.4f, r * 0.16f, r * 0.16f, p);
+        p.setColor(Color.rgb(90, 95, 105));
+        canvas.drawRoundRect(body, r * 0.18f, r * 0.18f, p);
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawBankIcon(Canvas canvas, Paint p, float cx, float cy, float r) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(46, 160, 88));
+        RectF body = new RectF(cx - r * 0.78f, cy - r * 0.42f, cx + r * 0.78f, cy + r * 0.64f);
+        canvas.drawRoundRect(body, r * 0.14f, r * 0.14f, p);
+        p.setColor(Color.rgb(180, 245, 190));
+        canvas.drawCircle(cx, cy + r * 0.1f, r * 0.34f, p);
+        p.setColor(Color.rgb(18, 92, 45));
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(r * 0.58f);
+        p.setFakeBoldText(true);
+        canvas.drawText("$", cx, cy + r * 0.3f, p);
+        p.setFakeBoldText(false);
+        p.setTextAlign(Paint.Align.LEFT);
+        p.setColor(Color.rgb(35, 120, 68));
+        Path roof = new Path();
+        roof.moveTo(cx - r * 0.88f, cy - r * 0.42f);
+        roof.lineTo(cx, cy - r * 0.92f);
+        roof.lineTo(cx + r * 0.88f, cy - r * 0.42f);
+        roof.close();
+        canvas.drawPath(roof, p);
+    }
+
+    private void drawIngotsIcon(Canvas canvas, Paint p, float cx, float cy, float r, int color) {
+        p.setColor(color);
+        canvas.drawRoundRect(cx - r * 0.72f, cy + r * 0.02f, cx - r * 0.05f, cy + r * 0.42f, r * 0.1f, r * 0.1f, p);
+        canvas.drawRoundRect(cx - r * 0.18f, cy - r * 0.16f, cx + r * 0.55f, cy + r * 0.24f, r * 0.1f, r * 0.1f, p);
+        canvas.drawRoundRect(cx - r * 0.46f, cy - r * 0.42f, cx + r * 0.26f, cy - r * 0.02f, r * 0.1f, r * 0.1f, p);
+    }
+
+    private void drawBirdIcon(Canvas canvas, Paint p, float cx, float cy, float r, int color, boolean morning) {
+        p.setColor(color);
+        canvas.drawOval(cx - r * 0.55f, cy - r * 0.05f, cx + r * 0.38f, cy + r * 0.44f, p);
+        canvas.drawCircle(cx + r * 0.28f, cy - r * 0.26f, r * 0.22f, p);
+        canvas.drawOval(cx - r * 0.75f, cy - r * 0.34f, cx - r * 0.1f, cy + r * 0.12f, p);
+        p.setColor(morning ? Color.rgb(255, 240, 150) : Color.rgb(225, 230, 255));
+        canvas.drawCircle(cx + r * 0.35f, cy - r * 0.31f, r * 0.06f, p);
+    }
+
+    private void drawLightningIcon(Canvas canvas, Paint p, float cx, float cy, float r, int color) {
+        Path path = new Path();
+        path.moveTo(cx + r * 0.16f, cy - r * 0.78f);
+        path.lineTo(cx - r * 0.44f, cy + r * 0.05f);
+        path.lineTo(cx + r * 0.02f, cy + r * 0.05f);
+        path.lineTo(cx - r * 0.2f, cy + r * 0.72f);
+        path.lineTo(cx + r * 0.56f, cy - r * 0.14f);
+        path.lineTo(cx + r * 0.1f, cy - r * 0.14f);
+        path.close();
+        p.setColor(color);
+        canvas.drawPath(path, p);
+    }
+
     private void drawMoneyBagIcon(Canvas canvas, float x, float y, float size) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.rgb(218, 176, 72));
@@ -618,22 +833,7 @@ final class OnlineGameView extends View {
             }
             float cx = x + count * step + size / 2f;
             float cy = y;
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.rgb(236, 188, 78));
-            canvas.drawCircle(cx, cy, size * 0.55f, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(1f, size * 0.08f));
-            paint.setColor(Color.WHITE);
-            canvas.drawCircle(cx, cy, size * 0.42f, paint);
-            paint.setStyle(Paint.Style.FILL);
-            paint.setTextAlign(Paint.Align.CENTER);
-            paint.setFakeBoldText(true);
-            paint.setTextSize(size * 0.52f);
-            paint.setColor(Color.rgb(70, 52, 24));
-            String label = symbol == null || symbol.isEmpty() ? "*" : symbol.substring(0, 1).toUpperCase();
-            canvas.drawText(label, cx, cy + size * 0.18f, paint);
-            paint.setTextAlign(Paint.Align.LEFT);
-            paint.setFakeBoldText(false);
+            drawBitmapIcon(canvas, "award_" + symbol, cx - size * 0.55f, cy - size * 0.55f, size * 1.1f);
             count++;
         }
     }
@@ -675,9 +875,9 @@ final class OnlineGameView extends View {
         float x = originX + (artifact.x + 0.5f) * tile;
         float y = originY + (artifact.y + 0.5f) * tile;
         if ("MEDKIT".equals(artifact.type)) {
-            drawMedkitIcon(canvas, x, y, tile);
+            drawBitmapIcon(canvas, "medkit", x - tile * 0.3f, y - tile * 0.3f, tile * 0.6f);
         } else if ("BANK".equals(artifact.type)) {
-            drawBankIcon(canvas, x, y, tile);
+            drawBitmapIcon(canvas, "bank", x - tile * 0.3f, y - tile * 0.3f, tile * 0.6f);
         } else if ("FREEZER".equals(artifact.type) || "SHIELD".equals(artifact.type) || "PORTAL".equals(artifact.type)) {
             String label = "FREEZER".equals(artifact.type) ? "F" : "SHIELD".equals(artifact.type) ? "S" : "P";
             int color = "FREEZER".equals(artifact.type) ? Color.rgb(70, 210, 255)
@@ -690,13 +890,14 @@ final class OnlineGameView extends View {
     }
 
     private void drawLetterArtifact(Canvas canvas, float x, float y, float tile, String label, int color) {
+        float pulse = 0.9f + 0.1f * (float) Math.sin(SystemClock.uptimeMillis() / 130.0);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(color);
-        canvas.drawCircle(x, y, tile * 0.28f, paint);
+        canvas.drawCircle(x, y, tile * 0.28f * pulse, paint);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(Math.max(2f, tile * 0.05f));
         paint.setColor(Color.WHITE);
-        canvas.drawCircle(x, y, tile * 0.2f, paint);
+        canvas.drawCircle(x, y, tile * 0.2f * pulse, paint);
         paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setFakeBoldText(true);
