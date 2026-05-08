@@ -130,7 +130,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 int latestCode = json.optInt("versionCode", 0);
                 String latestName = json.optString("versionName", "");
                 String apkUrl = json.optString("apkUrl", "");
-                if (latestCode > BuildConfig.VERSION_CODE && !apkUrl.isEmpty()) {
+                if (latestCode > GameConfig.APP_VERSION_CODE && !apkUrl.isEmpty()) {
                     runOnUiThread(() -> showUpdateDialog(latestName, apkUrl));
                 }
             } catch (Exception ignored) {

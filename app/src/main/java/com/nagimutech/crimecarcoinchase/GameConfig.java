@@ -1,6 +1,7 @@
 package com.nagimutech.crimecarcoinchase;
 
 final class GameConfig {
+    static final int APP_VERSION_CODE = 27;
     static final String APP_VERSION = "2.4.2";
     static final String UPDATE_CHECK_URL = "http://217.114.11.79:8080/android-version";
     static final String MULTIPLAYER_WS_URL = "ws://217.114.11.79:8080/game";
