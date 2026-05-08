@@ -400,11 +400,15 @@ final class OnlineGameView extends View {
         paint.setColor(Color.argb(222, 6, 10, 18));
         canvas.drawRect(0f, 0f, getWidth(), h, paint);
 
+        float size = 44f * density;
+        float right = getWidth() - 10f * density;
+        menuRect.set(right - size, 8f * density, right, 8f * density + size);
+
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setFakeBoldText(true);
         paint.setTextSize(15f * density);
         paint.setColor(Color.WHITE);
-        float baseline = 36f * density;
+        float baseline = 58f * density;
         if (hasServerState) {
             RemoteCar me = me();
             int meScore = me == null ? score : me.score;
@@ -414,31 +418,25 @@ final class OnlineGameView extends View {
             float icon = 18f * density;
             drawBitmapIcon(canvas, "wealth", x, baseline - icon + 3f * density, icon);
             canvas.drawText(meScore + "/" + meTotal, x + 24f * density, baseline, paint);
-            x += 118f * density;
-            drawBitmapIcon(canvas, "damage", x, baseline - icon + 3f * density, icon);
-            canvas.drawText(meDamage + "/" + GameConfig.MAX_DAMAGE, x + 25f * density, baseline, paint);
-            x += 104f * density;
-            drawBitmapIcon(canvas, "time", x, baseline - icon + 3f * density, icon);
-            canvas.drawText(formatTime(elapsedSeconds), x + 24f * density, baseline, paint);
-            x = 14f * density;
-            drawBitmapIcon(canvas, "banknote", x, 58f * density, 18f * density);
-            canvas.drawText(String.valueOf(banknotes), x + 28f * density, 72f * density, paint);
-            drawEffectBadges(canvas, me, x + 86f * density, 72f * density, getWidth() - 92f * density);
-            drawAwardBadges(canvas, x, 88f * density, getWidth() - 82f * density);
+            drawBitmapIcon(canvas, "banknote", x + 92f * density, baseline - icon + 3f * density, icon);
+            canvas.drawText(String.valueOf(banknotes), x + 115f * density, baseline, paint);
+            drawBitmapIcon(canvas, "damage", x + 154f * density, baseline - icon + 3f * density, icon);
+            canvas.drawText(meDamage + "/" + GameConfig.MAX_DAMAGE, x + 177f * density, baseline, paint);
+            drawBitmapIcon(canvas, "time", x + 216f * density, baseline - icon + 3f * density, icon);
+            canvas.drawText(formatTime(elapsedSeconds), x + 239f * density, baseline, paint);
+            drawEffectBadges(canvas, me, x, 36f * density, getWidth() - 92f * density);
+            drawAwardBadges(canvas);
         } else {
             drawSingleLineEllipsized(canvas, status, 14f * density, baseline, getWidth() - 92f * density);
         }
 
-        float size = 54f * density;
-        float right = getWidth() - 12f * density;
-        menuRect.set(right - size, (h - size) / 2f, right, (h + size) / 2f);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.argb(150, 0, 0, 0));
         canvas.drawRoundRect(menuRect, 16f * density, 16f * density, paint);
         paint.setColor(Color.WHITE);
         paint.setStrokeWidth(4f * density);
         float cx = menuRect.centerX();
-        float top = menuRect.top + 17f * density;
+        float top = menuRect.top + 13f * density;
         for (int i = 0; i < 3; i++) {
             canvas.drawLine(cx - 13f * density, top + i * 10f * density, cx + 13f * density, top + i * 10f * density, paint);
         }
@@ -504,7 +502,7 @@ final class OnlineGameView extends View {
     }
 
     private float topBarHeight() {
-        return 96f * density;
+        return 72f * density;
     }
 
     private float bottomHudHeight() {
@@ -638,8 +636,14 @@ final class OnlineGameView extends View {
             fill = Color.rgb(150, 230, 238);
         } else if (id.startsWith("late")) {
             fill = Color.rgb(126, 150, 245);
+        } else if ("flash_beginner".equals(id)) {
+            fill = Color.rgb(65, 210, 145);
+        } else if ("flash_amateur".equals(id)) {
+            fill = Color.rgb(88, 165, 255);
+        } else if ("flash_pro".equals(id)) {
+            fill = Color.rgb(255, 210, 65);
         } else if (id.startsWith("flash")) {
-            fill = Color.rgb(255, 80, 54);
+            fill = Color.rgb(255, 86, 52);
         }
         p.setStyle(Paint.Style.FILL);
         p.setColor(fill);
@@ -656,7 +660,7 @@ final class OnlineGameView extends View {
         } else if (id.startsWith("late")) {
             drawBirdIcon(canvas, p, cx, cy, r, Color.rgb(25, 32, 70), false);
         } else if (id.startsWith("flash")) {
-            drawLightningIcon(canvas, p, cx, cy, r, Color.WHITE);
+            drawFlashAwardIcon(canvas, p, id, cx, cy, r);
         } else {
             drawMoneyBagIcon(canvas, p, cx, cy, r * 0.82f, Color.rgb(70, 48, 24), Color.rgb(70, 48, 24));
         }
@@ -803,6 +807,32 @@ final class OnlineGameView extends View {
         canvas.drawPath(path, p);
     }
 
+    private void drawFlashAwardIcon(Canvas canvas, Paint p, String id, float cx, float cy, float r) {
+        int boltColor = "flash_pro".equals(id) ? Color.rgb(90, 60, 18) : Color.WHITE;
+        drawLightningIcon(canvas, p, cx, cy, r, boltColor);
+        if ("flash_amateur".equals(id) || "flash_pro".equals(id)) {
+            drawLightningIcon(canvas, p, cx + r * 0.34f, cy - r * 0.08f, r * 0.48f, boltColor);
+        }
+        if ("flash_pro".equals(id)) {
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.WHITE);
+            Path star = new Path();
+            for (int i = 0; i < 10; i++) {
+                double a = -Math.PI / 2 + i * Math.PI / 5;
+                float rr = i % 2 == 0 ? r * 0.22f : r * 0.09f;
+                float x = cx - r * 0.45f + (float) Math.cos(a) * rr;
+                float y = cy - r * 0.42f + (float) Math.sin(a) * rr;
+                if (i == 0) {
+                    star.moveTo(x, y);
+                } else {
+                    star.lineTo(x, y);
+                }
+            }
+            star.close();
+            canvas.drawPath(star, p);
+        }
+    }
+
     private void drawMoneyBagIcon(Canvas canvas, float x, float y, float size) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.rgb(218, 176, 72));
@@ -869,19 +899,25 @@ final class OnlineGameView extends View {
         paint.setFakeBoldText(false);
     }
 
-    private void drawAwardBadges(Canvas canvas, float x, float y, float maxX) {
+    private void drawAwardBadges(Canvas canvas) {
         float size = 13f * density;
-        float step = 18f * density;
-        int count = 0;
-        for (String symbol : awardSymbols) {
-            if (x + count * step + size > maxX) {
-                break;
-            }
-            float cx = x + count * step + size / 2f;
-            float cy = y;
-            drawBitmapIcon(canvas, "award_" + symbol, cx - size * 0.55f, cy - size * 0.55f, size * 1.1f);
-            count++;
+        float step = 17f * density;
+        float y = 16f * density;
+        float left = 12f * density;
+        float notchHalf = Math.min(58f * density, getWidth() * 0.18f);
+        float center = getWidth() / 2f;
+        float rightLimit = menuRect.left - 10f * density;
+        int index = drawAwardBadgeLane(canvas, 0, left, center - notchHalf, y, size, step);
+        drawAwardBadgeLane(canvas, index, center + notchHalf, rightLimit, y, size, step);
+    }
+
+    private int drawAwardBadgeLane(Canvas canvas, int index, float x, float maxX, float y, float size, float step) {
+        while (index < awardSymbols.size() && x + size <= maxX) {
+            drawBitmapIcon(canvas, "award_" + awardSymbols.get(index), x - size * 0.05f, y - size * 0.55f, size * 1.1f);
+            x += step;
+            index++;
         }
+        return index;
     }
 
     private String formatTime(int seconds) {

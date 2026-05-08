@@ -896,9 +896,10 @@ function fieldBanknotes(difficulty) {
 }
 
 function fastFieldLimitMs(difficulty) {
-  if (difficulty === "DEBUT") return 70000;
-  if (difficulty === "BEGINNER") return 120000;
-  return 180000;
+  if (difficulty === "DEBUT") return 100000;
+  if (difficulty === "BEGINNER") return 180000;
+  if (difficulty === "AMATEUR") return 270000;
+  return 330000;
 }
 
 function shuffle(items) {

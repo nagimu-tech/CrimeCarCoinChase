@@ -1045,12 +1045,15 @@ final class GameView extends View {
 
     private long fastFieldLimitMs() {
         if (difficulty == Difficulty.DEBUT) {
-            return 70000L;
+            return 100000L;
         }
         if (difficulty == Difficulty.BEGINNER) {
-            return 120000L;
+            return 180000L;
         }
-        return 180000L;
+        if (difficulty == Difficulty.AMATEUR) {
+            return 270000L;
+        }
+        return 330000L;
     }
 
     private void drawGame(Canvas canvas) {
@@ -1108,14 +1111,14 @@ final class GameView extends View {
     }
 
     private float topBarHeight() {
-        return 96f * density;
+        return 72f * density;
     }
 
     private void drawOverlay(Canvas canvas) {
         float barHeight = topBarHeight();
-        float button = 48f * density;
-        float margin = 12f * density;
-        float menuTop = (barHeight - button) / 2f;
+        float button = 44f * density;
+        float margin = 10f * density;
+        float menuTop = 8f * density;
         menuRect.set(getWidth() - margin - button, menuTop, getWidth() - margin, menuTop + button);
 
         paint.setStyle(Paint.Style.FILL);
@@ -1150,14 +1153,14 @@ final class GameView extends View {
         canvas.drawText(damage + "/" + GameConfig.MAX_DAMAGE, margin + 177f * density, baseY, paint);
         drawBitmapIcon(canvas, "time", margin + 216f * density, baseY - icon + 3f * density, icon);
         canvas.drawText(formatClock(elapsed), margin + 239f * density, baseY, paint);
-        drawEffectBadges(canvas, margin, 24f * density);
-        drawAwardBadges(canvas, margin, 86f * density);
+        drawEffectBadges(canvas, margin, 36f * density);
+        drawAwardBadges(canvas);
 
         if (!playing || roundOver) {
             paint.setColor(Color.argb(235, 245, 200, 75));
             paint.setTextSize(12f * density);
             String text = roundOver ? "Коснись поля для нового заезда" : "Коснись поля и веди палец";
-            canvas.drawText(text, getWidth() * 0.38f, 86f * density, paint);
+            canvas.drawText(text, getWidth() * 0.38f, 68f * density, paint);
         } else if (paused) {
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setColor(Color.argb(210, 255, 255, 255));
@@ -1257,14 +1260,25 @@ final class GameView extends View {
         return (seconds / 60L) + ":" + (seconds % 60L < 10L ? "0" : "") + (seconds % 60L);
     }
 
-    private void drawAwardBadges(Canvas canvas, float x, float y) {
+    private void drawAwardBadges(Canvas canvas) {
         float badge = 12f * density;
         float gap = 4f * density;
-        float maxX = getWidth() - 70f * density;
-        for (int i = 0; i < awardIds.size() && x + badge <= maxX; i++) {
-            drawAwardBadge(canvas, awardIds.get(i), x + badge / 2f, y - badge / 2f, badge);
+        float y = 16f * density;
+        float left = 12f * density;
+        float notchHalf = Math.min(58f * density, getWidth() * 0.18f);
+        float center = getWidth() / 2f;
+        float rightLimit = menuRect.left - 10f * density;
+        int index = drawAwardBadgeLane(canvas, 0, left, center - notchHalf, y, badge, gap);
+        drawAwardBadgeLane(canvas, index, center + notchHalf, rightLimit, y, badge, gap);
+    }
+
+    private int drawAwardBadgeLane(Canvas canvas, int index, float x, float maxX, float y, float badge, float gap) {
+        while (index < awardIds.size() && x + badge <= maxX) {
+            drawAwardBadge(canvas, awardIds.get(index), x + badge / 2f, y, badge);
             x += badge + gap;
+            index++;
         }
+        return index;
     }
 
     private void drawAwardBadge(Canvas canvas, String id, float x, float y, float size) {
@@ -1318,8 +1332,14 @@ final class GameView extends View {
             fill = Color.rgb(150, 230, 238);
         } else if (id.startsWith("late")) {
             fill = Color.rgb(126, 150, 245);
+        } else if ("flash_beginner".equals(id)) {
+            fill = Color.rgb(65, 210, 145);
+        } else if ("flash_amateur".equals(id)) {
+            fill = Color.rgb(88, 165, 255);
+        } else if ("flash_pro".equals(id)) {
+            fill = Color.rgb(255, 210, 65);
         } else if (id.startsWith("flash")) {
-            fill = Color.rgb(255, 80, 54);
+            fill = Color.rgb(255, 86, 52);
         }
         p.setStyle(Paint.Style.FILL);
         p.setColor(fill);
@@ -1336,7 +1356,7 @@ final class GameView extends View {
         } else if (id.startsWith("late")) {
             drawBirdIcon(canvas, p, cx, cy, r, Color.rgb(25, 32, 70), false);
         } else if (id.startsWith("flash")) {
-            drawLightningIcon(canvas, p, cx, cy, r, Color.WHITE);
+            drawFlashAwardIcon(canvas, p, id, cx, cy, r);
         } else {
             drawMoneyBagIcon(canvas, p, cx, cy, r * 0.82f, Color.rgb(70, 48, 24), Color.rgb(70, 48, 24));
         }
@@ -1481,6 +1501,32 @@ final class GameView extends View {
         path.close();
         p.setColor(color);
         canvas.drawPath(path, p);
+    }
+
+    private void drawFlashAwardIcon(Canvas canvas, Paint p, String id, float cx, float cy, float r) {
+        int boltColor = "flash_pro".equals(id) ? Color.rgb(90, 60, 18) : Color.WHITE;
+        drawLightningIcon(canvas, p, cx, cy, r, boltColor);
+        if ("flash_amateur".equals(id) || "flash_pro".equals(id)) {
+            drawLightningIcon(canvas, p, cx + r * 0.34f, cy - r * 0.08f, r * 0.48f, boltColor);
+        }
+        if ("flash_pro".equals(id)) {
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.WHITE);
+            Path star = new Path();
+            for (int i = 0; i < 10; i++) {
+                double a = -Math.PI / 2 + i * Math.PI / 5;
+                float rr = i % 2 == 0 ? r * 0.22f : r * 0.09f;
+                float x = cx - r * 0.45f + (float) Math.cos(a) * rr;
+                float y = cy - r * 0.42f + (float) Math.sin(a) * rr;
+                if (i == 0) {
+                    star.moveTo(x, y);
+                } else {
+                    star.lineTo(x, y);
+                }
+            }
+            star.close();
+            canvas.drawPath(star, p);
+        }
     }
 
     private void drawCar(Canvas canvas, Car car, int body, int accent, float tile, float originX, float originY, boolean isPlayer) {

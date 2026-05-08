@@ -1130,8 +1130,9 @@ public final class MainActivity extends Activity implements GameView.Listener {
         if (prefs.getInt(GameConfig.PREF_LATE_GAMES, 0) >= 10) {
             unlocked.add("late");
         }
+        migrateLegacyFlash(unlocked);
         if (result.won && result.fastField) {
-            unlocked.add("flash");
+            unlocked.add(flashAwardId(result.difficulty));
         }
         addStoredProgressAwards(unlocked);
         saveUnlockedAwards(unlocked);
@@ -1145,8 +1146,29 @@ public final class MainActivity extends Activity implements GameView.Listener {
         if (prefs.getInt(GameConfig.PREF_LATE_GAMES, 0) >= 10) {
             unlocked.add("late");
         }
+        migrateLegacyFlash(unlocked);
         addStoredProgressAwards(unlocked);
         saveUnlockedAwards(unlocked);
+    }
+
+    private void migrateLegacyFlash(Set<String> unlocked) {
+        if (unlocked.contains("flash")) {
+            unlocked.add("flash_debut");
+            unlocked.remove("flash");
+        }
+    }
+
+    private String flashAwardId(Difficulty difficulty) {
+        if (difficulty == Difficulty.DEBUT) {
+            return "flash_debut";
+        }
+        if (difficulty == Difficulty.BEGINNER) {
+            return "flash_beginner";
+        }
+        if (difficulty == Difficulty.AMATEUR) {
+            return "flash_amateur";
+        }
+        return "flash_pro";
     }
 
     private void addStoredProgressAwards(Set<String> unlocked) {
@@ -1169,7 +1191,12 @@ public final class MainActivity extends Activity implements GameView.Listener {
         if (raw == null || raw.isEmpty()) {
             return new ArrayList<>();
         }
-        return new ArrayList<>(Arrays.asList(raw.split(",")));
+        ArrayList<String> values = new ArrayList<>(Arrays.asList(raw.split(",")));
+        if (values.contains("flash") && !values.contains("flash_debut")) {
+            values.add("flash_debut");
+        }
+        values.remove("flash");
+        return values;
     }
 
     private void saveUnlockedAwards(Set<String> awards) {
@@ -1218,7 +1245,10 @@ public final class MainActivity extends Activity implements GameView.Listener {
         awards.add(new Award("pro_3", "10 слитков и золотой бюст", "Профессионал: 25000 богатства", "P", Color.rgb(255, 160, 20), Difficulty.PRO.name(), 25000));
         awards.add(new Award("early", "Грабитель-жаворонок", "10 игр до 8 утра", "Ж", Color.rgb(255, 210, 95), null, 0));
         awards.add(new Award("late", "Грабитель-сова", "10 игр после 8 вечера", "С", Color.rgb(135, 160, 255), null, 0));
-        awards.add(new Award("flash", "Флеш", "Быстро собрать поле: Дебют 1:10, Начинающий 2:00, Любитель и Профессионал 3:00", "F", Color.rgb(255, 80, 60), null, 0));
+        awards.add(new Award("flash_debut", "Флеш дебют", "Дебют: быстро собрать поле за 1:40", "FD", Color.rgb(255, 95, 60), null, 0));
+        awards.add(new Award("flash_beginner", "Флеш начинающий", "Начинающий: быстро собрать поле за 3:00", "FN", Color.rgb(70, 215, 150), null, 0));
+        awards.add(new Award("flash_amateur", "Флеш любитель", "Любитель: быстро собрать поле за 4:30", "FL", Color.rgb(100, 175, 255), null, 0));
+        awards.add(new Award("flash_pro", "Флеш профессионал", "Профессионал: быстро собрать поле за 5:30", "FP", Color.rgb(255, 214, 70), null, 0));
         return awards;
     }
 
@@ -1351,8 +1381,8 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 drawBird(canvas, w / 2f, h / 2f, r, detail, true);
             } else if ("late".equals(award.id)) {
                 drawBird(canvas, w / 2f, h / 2f, r, detail, false);
-            } else if ("flash".equals(award.id)) {
-                drawLightning(canvas, w / 2f, h / 2f, r, detail);
+            } else if (award.id.startsWith("flash")) {
+                drawFlash(canvas, award.id, w / 2f, h / 2f, r, detail);
             } else {
                 drawMoneyBag(canvas, w / 2f, h / 2f, r, detail);
             }
@@ -1401,6 +1431,30 @@ public final class MainActivity extends Activity implements GameView.Listener {
             path.close();
             paint.setColor(color);
             canvas.drawPath(path, paint);
+        }
+
+        private void drawFlash(Canvas canvas, String id, float cx, float cy, float r, int color) {
+            drawLightning(canvas, cx, cy, r, color);
+            if ("flash_amateur".equals(id) || "flash_pro".equals(id)) {
+                drawLightning(canvas, cx + r * 0.3f, cy - r * 0.08f, r * 0.52f, color);
+            }
+            if ("flash_pro".equals(id)) {
+                paint.setColor(Color.WHITE);
+                Path star = new Path();
+                for (int i = 0; i < 10; i++) {
+                    double a = -Math.PI / 2 + i * Math.PI / 5;
+                    float rr = i % 2 == 0 ? r * 0.22f : r * 0.09f;
+                    float x = cx - r * 0.45f + (float) Math.cos(a) * rr;
+                    float y = cy - r * 0.42f + (float) Math.sin(a) * rr;
+                    if (i == 0) {
+                        star.moveTo(x, y);
+                    } else {
+                        star.lineTo(x, y);
+                    }
+                }
+                star.close();
+                canvas.drawPath(star, paint);
+            }
         }
     }
 
