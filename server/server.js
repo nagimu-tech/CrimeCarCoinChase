@@ -298,7 +298,7 @@ function updateRoom(room, delta, now) {
     checkExitPortal(room, player, now);
   }
   for (const police of room.police) {
-    updatePolice(room, police, delta);
+    updatePolice(room, police, delta, now);
   }
   for (const player of room.players) {
     for (const police of room.police) {
@@ -362,8 +362,11 @@ function updatePlayer(room, player, delta) {
   move(room, player, playerSpeed(room.difficulty), delta);
 }
 
-function updatePolice(room, police, delta) {
-  if (Date.now() < room.freezeUntil) return;
+function updatePolice(room, police, delta, now) {
+  if (now < room.freezeUntil) {
+    freezePolice(police);
+    return;
+  }
   recoverIfInWall(room, police);
   const target = nearestPlayer(room, police);
   if (atCenter(police)) {
@@ -378,6 +381,11 @@ function updatePolice(room, police, delta) {
     police.dir = chooseOpenDirection(room, police, target) || "NONE";
   }
   move(room, police, policeSpeed(room.difficulty), delta);
+}
+
+function freezePolice(police) {
+  police.dir = "NONE";
+  police.nextDir = "NONE";
 }
 
 function move(room, actor, speed, delta) {

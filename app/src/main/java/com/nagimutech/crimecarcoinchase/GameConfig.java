@@ -1,8 +1,8 @@
 package com.nagimutech.crimecarcoinchase;
 
 final class GameConfig {
-    static final int APP_VERSION_CODE = 28;
-    static final String APP_VERSION = "2.4.3";
+    static final int APP_VERSION_CODE = 29;
+    static final String APP_VERSION = "2.4.4";
     static final String UPDATE_CHECK_URL = "http://217.114.11.79:8080/android-version";
     static final String MULTIPLAYER_WS_URL = "ws://217.114.11.79:8080/game";
     static final int STORAGE_SCHEMA = 1;

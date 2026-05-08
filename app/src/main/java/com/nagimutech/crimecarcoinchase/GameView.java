@@ -357,9 +357,9 @@ final class GameView extends View {
     private void update(float delta, long now) {
         updateArtifact(now);
         move(player, PLAYER_SPEED, delta);
-        updatePolice(delta);
         collectItem();
         checkExitPortal();
+        updatePolice(delta, now);
         checkHits(now);
     }
 
@@ -672,8 +672,9 @@ final class GameView extends View {
         }
     }
 
-    private void updatePolice(float delta) {
-        if (SystemClock.uptimeMillis() < freezeUntil) {
+    private void updatePolice(float delta, long now) {
+        if (now < freezeUntil) {
+            freezePoliceCars();
             return;
         }
         for (Car car : policeCars) {
@@ -689,6 +690,15 @@ final class GameView extends View {
                 }
             }
             move(car, difficulty.policeSpeed, delta);
+        }
+    }
+
+    private void freezePoliceCars() {
+        for (Car car : policeCars) {
+            car.dir = Direction.NONE;
+            car.nextDir = Direction.NONE;
+            car.stopAtCenter = false;
+            car.decisionDelay = 0f;
         }
     }
 

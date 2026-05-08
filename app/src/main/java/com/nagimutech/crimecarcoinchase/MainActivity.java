@@ -200,6 +200,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         recordCompletedGameTime(result.startedAt);
         updateAwards(result);
         refreshAwardHud();
+        showLoseDialog(result);
     }
 
     @Override
@@ -1367,6 +1368,41 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 .create();
         restart.setOnClickListener(v -> {
             gameView.start(difficulty);
+            dialog.dismiss();
+        });
+        dialog.show();
+    }
+
+    private void showLoseDialog(GameResult result) {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(20), dp(18), dp(20), dp(14));
+
+        TextView title = panelText("Поражение");
+        title.setTextSize(24f);
+        title.setGravity(Gravity.CENTER);
+        title.setTypeface(null, 1);
+        panel.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView details = panelText("Полиция нанесла " + result.damage + "/" + GameConfig.MAX_DAMAGE
+                + " уронов.\nБогатство за этот заезд не добавлено."
+                + "\nСобрано в заезде: " + result.wealth
+                + "\nВремя: " + formatTime(result.seconds));
+        details.setGravity(Gravity.CENTER);
+        panel.addView(details, new LinearLayout.LayoutParams(-1, -2));
+
+        Button action = new Button(this);
+        action.setAllCaps(false);
+        action.setText(onlineView == null ? "Новый заезд" : "Понятно");
+        panel.addView(action, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(panel)
+                .create();
+        action.setOnClickListener(v -> {
+            if (onlineView == null) {
+                gameView.start(difficulty);
+            }
             dialog.dismiss();
         });
         dialog.show();
