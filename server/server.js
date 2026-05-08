@@ -1,7 +1,11 @@
 const crypto = require("crypto");
+const fs = require("fs");
 const http = require("http");
+const path = require("path");
 
 const PORT = Number(process.env.PORT || 8080);
+const PUBLIC_DIR = path.join(__dirname, "public");
+const VERSION_FILE = path.join(PUBLIC_DIR, "android-version.json");
 const MAX_DAMAGE = 5;
 const TICK_MS = 25;
 const INVULNERABLE_MS = 3000;
@@ -22,9 +26,48 @@ const server = http.createServer((req, res) => {
     res.end("ok");
     return;
   }
+  if (req.url === "/android-version") {
+    serveAndroidVersion(res);
+    return;
+  }
+  if (req.url === "/downloads/pogonya-latest.apk") {
+    serveFile(res, path.join(PUBLIC_DIR, "pogonya-latest.apk"), "application/vnd.android.package-archive");
+    return;
+  }
   res.writeHead(404);
   res.end();
 });
+
+function serveAndroidVersion(res) {
+  fs.readFile(VERSION_FILE, "utf8", (error, content) => {
+    if (error) {
+      res.writeHead(503, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: "version_not_published" }));
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    });
+    res.end(content);
+  });
+}
+
+function serveFile(res, filePath, contentType) {
+  fs.stat(filePath, (error, stat) => {
+    if (error || !stat.isFile()) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": contentType,
+      "content-length": stat.size,
+      "cache-control": "no-store",
+    });
+    fs.createReadStream(filePath).pipe(res);
+  });
+}
 
 server.on("upgrade", (req, socket) => {
   if (!req.url.startsWith("/game")) {

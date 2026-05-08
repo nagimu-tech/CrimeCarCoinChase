@@ -45,6 +45,40 @@ jobs:
           name: pogonya-debug-apk
           path: app/build/outputs/apk/debug/*.apk
 
+      - name: Publish latest APK to Beget
+        env:
+          BEGET_HOST: ${{ secrets.BEGET_HOST }}
+          BEGET_USER: ${{ secrets.BEGET_USER }}
+          BEGET_SSH_KEY: ${{ secrets.BEGET_SSH_KEY }}
+          BEGET_PORT: ${{ secrets.BEGET_PORT }}
+        run: |
+          if [ -z "$BEGET_HOST" ] || [ -z "$BEGET_USER" ] || [ -z "$BEGET_SSH_KEY" ]; then
+            echo "Beget SSH secrets are not configured."
+            exit 1
+          fi
+          APK="$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)"
+          if [ -z "$APK" ]; then
+            echo "No debug APK found."
+            exit 1
+          fi
+          VERSION_CODE="$(grep -o 'versionCode = [0-9]*' app/build.gradle.kts | grep -o '[0-9]*')"
+          VERSION_NAME="$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | sed 's/versionName = "//; s/"//')"
+          PORT="${BEGET_PORT:-22}"
+          APK_URL="http://${BEGET_HOST}:8080/downloads/pogonya-latest.apk"
+          cat > android-version.json <<JSON
+          {
+            "versionCode": ${VERSION_CODE},
+            "versionName": "${VERSION_NAME}",
+            "apkUrl": "${APK_URL}"
+          }
+          JSON
+          install -m 600 /dev/null beget_key
+          printf '%s' "$BEGET_SSH_KEY" > beget_key
+          ssh -i beget_key -p "$PORT" -o StrictHostKeyChecking=no "$BEGET_USER@$BEGET_HOST" "mkdir -p /opt/coin-chase-server/public"
+          scp -i beget_key -P "$PORT" -o StrictHostKeyChecking=no "$APK" "$BEGET_USER@$BEGET_HOST:/opt/coin-chase-server/public/pogonya-latest.apk"
+          scp -i beget_key -P "$PORT" -o StrictHostKeyChecking=no android-version.json "$BEGET_USER@$BEGET_HOST:/opt/coin-chase-server/public/android-version.json"
+          ssh -i beget_key -p "$PORT" -o StrictHostKeyChecking=no "$BEGET_USER@$BEGET_HOST" "chmod 644 /opt/coin-chase-server/public/pogonya-latest.apk /opt/coin-chase-server/public/android-version.json"
+
       - name: Send debug APK by email
         continue-on-error: true
         env:

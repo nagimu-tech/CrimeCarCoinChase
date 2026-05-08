@@ -3,12 +3,14 @@ package com.nagimutech.crimecarcoinchase;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
+import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
@@ -31,6 +33,10 @@ import android.widget.Toast;
 
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -83,6 +89,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         setContentView(root);
         refreshAwardHud();
         showSplashScreen();
+        checkForUpdates();
     }
 
     @Override
@@ -98,6 +105,58 @@ public final class MainActivity extends Activity implements GameView.Listener {
                             | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             );
         }
+    }
+
+    private void checkForUpdates() {
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                URL url = new URL(GameConfig.UPDATE_CHECK_URL);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(3500);
+                connection.setReadTimeout(3500);
+                connection.setRequestMethod("GET");
+                if (connection.getResponseCode() != 200) {
+                    return;
+                }
+                StringBuilder body = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        body.append(line);
+                    }
+                }
+                JSONObject json = new JSONObject(body.toString());
+                int latestCode = json.optInt("versionCode", 0);
+                String latestName = json.optString("versionName", "");
+                String apkUrl = json.optString("apkUrl", "");
+                if (latestCode > BuildConfig.VERSION_CODE && !apkUrl.isEmpty()) {
+                    runOnUiThread(() -> showUpdateDialog(latestName, apkUrl));
+                }
+            } catch (Exception ignored) {
+                // Update checks must never prevent offline play.
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+        }, "update-check").start();
+    }
+
+    private void showUpdateDialog(String latestName, String apkUrl) {
+        if (isFinishing()) {
+            return;
+        }
+        String version = latestName == null || latestName.isEmpty() ? "новая версия" : latestName;
+        new AlertDialog.Builder(this)
+                .setTitle("Доступно обновление")
+                .setMessage("Можно скачать версию " + version + ". Данные игры сохранятся, если установить APK поверх текущей версии.")
+                .setPositiveButton("Скачать", (dialog, which) -> {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl));
+                    startActivity(intent);
+                })
+                .setNegativeButton("Позже", null)
+                .show();
     }
 
     @Override
