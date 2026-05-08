@@ -151,10 +151,10 @@ final class GameView extends View {
     private void configureMapSize() {
         if (difficulty == Difficulty.DEBUT) {
             mapWidth = 13;
-            mapHeight = 21;
+            mapHeight = 23;
         } else if (difficulty == Difficulty.BEGINNER) {
             mapWidth = 15;
-            mapHeight = 25;
+            mapHeight = 27;
         } else {
             mapWidth = GameConfig.MAP_WIDTH;
             mapHeight = GameConfig.MAP_HEIGHT;

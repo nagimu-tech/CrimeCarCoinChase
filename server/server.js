@@ -907,9 +907,9 @@ function car(id, x, y, dir) {
 }
 
 function mapSize(difficulty) {
-  if (difficulty === "DEBUT") return { width: 13, height: 21 };
-  if (difficulty === "BEGINNER") return { width: 15, height: 25 };
-  return { width: 17, height: 29 };
+  if (difficulty === "DEBUT") return { width: 13, height: 23 };
+  if (difficulty === "BEGINNER") return { width: 15, height: 27 };
+  return { width: 17, height: 31 };
 }
 
 function difficultyPoliceCount(difficulty) {
