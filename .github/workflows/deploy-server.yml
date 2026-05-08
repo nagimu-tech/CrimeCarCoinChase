@@ -1,0 +1,74 @@
+name: Deploy Beget Server
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "server/**"
+      - ".github/workflows/deploy-server.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-beget-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      BEGET_HOST: ${{ secrets.BEGET_HOST }}
+      BEGET_USER: ${{ secrets.BEGET_USER }}
+      BEGET_PORT: ${{ secrets.BEGET_PORT || '22' }}
+      REMOTE_DIR: /opt/coin-chase-server
+      REMOTE_FILE: /opt/coin-chase-server/server.cjs
+      PM2_PROCESS: pogonya-server
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check server syntax
+        run: node --check server/server.js
+
+      - name: Validate deploy secrets
+        env:
+          BEGET_SSH_KEY: ${{ secrets.BEGET_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$BEGET_HOST" || (echo "BEGET_HOST secret is required" && exit 1)
+          test -n "$BEGET_USER" || (echo "BEGET_USER secret is required" && exit 1)
+          test -n "$BEGET_PORT" || (echo "BEGET_PORT secret is required" && exit 1)
+          test -n "$BEGET_SSH_KEY" || (echo "BEGET_SSH_KEY secret is required" && exit 1)
+
+      - name: Configure SSH
+        env:
+          BEGET_SSH_KEY: ${{ secrets.BEGET_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$BEGET_SSH_KEY" > ~/.ssh/beget_deploy_key
+          chmod 600 ~/.ssh/beget_deploy_key
+          ssh-keyscan -p "$BEGET_PORT" -H "$BEGET_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload server file
+        run: |
+          set -euo pipefail
+          scp -P "$BEGET_PORT" -i ~/.ssh/beget_deploy_key \
+            server/server.js \
+            "$BEGET_USER@$BEGET_HOST:/tmp/pogonya-server.cjs"
+
+      - name: Restart PM2 server
+        run: |
+          set -euo pipefail
+          ssh -p "$BEGET_PORT" -i ~/.ssh/beget_deploy_key "$BEGET_USER@$BEGET_HOST" <<'SSH'
+            set -euo pipefail
+            mkdir -p /opt/coin-chase-server
+            cp /tmp/pogonya-server.cjs /opt/coin-chase-server/server.cjs
+            node --check /opt/coin-chase-server/server.cjs
+            pm2 restart pogonya-server
+            pm2 save
+            curl -fsS http://127.0.0.1:8080/health
+          SSH
+
