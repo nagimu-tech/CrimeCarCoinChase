@@ -24,6 +24,7 @@ import java.util.Random;
 final class GameView extends View {
     interface Listener {
         void onHudChanged(int score, int total, int damage);
+        void onRoundStarted(Difficulty difficulty);
         void onFieldCompleted(Difficulty difficulty);
         void onBankBonus(Difficulty difficulty, int banknotes);
         void onWin(GameResult result);
@@ -41,6 +42,7 @@ final class GameView extends View {
     private static final float PLAYER_SPEED = 3.12f;
     private static final long INVULNERABLE_MS = 3000L;
     private static final long ARTIFACT_INTERVAL_MS = 15000L;
+    private static final long PROF_ARTIFACT_INTERVAL_MS = 22500L;
     private static final long ARTIFACT_VISIBLE_MS = 15000L;
     private static final long FREEZE_MS = 20000L;
     private static final long SHIELD_MS = 20000L;
@@ -79,9 +81,13 @@ final class GameView extends View {
     private RectF menuRect = new RectF();
     private final List<ArtifactDrop> activeArtifacts = new ArrayList<>();
     private long nextArtifactAt;
+    private long nextProfArtifactAt;
     private long freezeUntil;
     private long shieldUntil;
     private long ghostUntil;
+    private long killerUntil;
+    private long chaosUntil;
+    private long doubleUntil;
     private long lastQuickTapAt;
     private int quickTapCount;
     private int stageIndex;
@@ -96,6 +102,10 @@ final class GameView extends View {
     private Cell bankCell;
     private boolean bankRestorePending;
     private int banknotes;
+    private boolean profEnabled;
+    private boolean aiAllyEnabled;
+    private Car allyPlayer;
+    private String avatarEncoded = "";
     private final List<String> awardIds = new ArrayList<>();
     private final Map<String, Bitmap> bitmapIcons = new HashMap<>();
 
@@ -125,9 +135,13 @@ final class GameView extends View {
         lastFrameAt = 0L;
         activeArtifacts.clear();
         nextArtifactAt = startPlaying ? startedAt + ARTIFACT_INTERVAL_MS : 0L;
+        nextProfArtifactAt = startPlaying && profEnabled ? startedAt + PROF_ARTIFACT_INTERVAL_MS : 0L;
         freezeUntil = 0L;
         shieldUntil = 0L;
         ghostUntil = 0L;
+        killerUntil = 0L;
+        chaosUntil = 0L;
+        doubleUntil = 0L;
         lastQuickTapAt = 0L;
         quickTapCount = 0;
         stageIndex = 1;
@@ -144,6 +158,10 @@ final class GameView extends View {
         generateMap();
         placeDiamonds();
         createPoliceCars();
+        allyPlayer = aiAllyEnabled && profEnabled ? new Car(new Cell(mapWidth - 2, mapHeight - 2)) : null;
+        if (startPlaying) {
+            listener.onRoundStarted(difficulty);
+        }
         listener.onHudChanged(scoreCollected, scoreTotal, damage);
         invalidate();
     }
@@ -159,6 +177,25 @@ final class GameView extends View {
             mapWidth = GameConfig.MAP_WIDTH;
             mapHeight = GameConfig.MAP_HEIGHT;
         }
+    }
+
+    void setProfEnabled(boolean enabled) {
+        profEnabled = enabled;
+        if (!profEnabled) {
+            aiAllyEnabled = false;
+            allyPlayer = null;
+        }
+        invalidate();
+    }
+
+    void setAiAllyEnabled(boolean enabled) {
+        aiAllyEnabled = enabled;
+        invalidate();
+    }
+
+    void setAvatar(String encoded) {
+        avatarEncoded = encoded == null ? "" : encoded;
+        invalidate();
     }
 
     void start(Difficulty newDifficulty) {
@@ -192,6 +229,7 @@ final class GameView extends View {
                 startedAt += pauseDuration;
                 fieldStartedAt += pauseDuration;
                 nextArtifactAt = shiftTimer(nextArtifactAt, pauseDuration);
+                nextProfArtifactAt = shiftTimer(nextProfArtifactAt, pauseDuration);
                 for (ArtifactDrop drop : activeArtifacts) {
                     drop.expiresAt = shiftTimer(drop.expiresAt, pauseDuration);
                 }
@@ -200,6 +238,9 @@ final class GameView extends View {
                 freezeUntil = shiftTimer(freezeUntil, pauseDuration);
                 shieldUntil = shiftTimer(shieldUntil, pauseDuration);
                 ghostUntil = shiftTimer(ghostUntil, pauseDuration);
+                killerUntil = shiftTimer(killerUntil, pauseDuration);
+                chaosUntil = shiftTimer(chaosUntil, pauseDuration);
+                doubleUntil = shiftTimer(doubleUntil, pauseDuration);
             }
             paused = false;
             pausedAt = 0L;
@@ -357,10 +398,66 @@ final class GameView extends View {
     private void update(float delta, long now) {
         updateArtifact(now);
         move(player, PLAYER_SPEED, delta);
+        updateAiAlly(delta);
         collectItem();
         checkExitPortal();
         updatePolice(delta, now);
         checkHits(now);
+    }
+
+    private void updateAiAlly(float delta) {
+        if (allyPlayer == null || !playing) {
+            return;
+        }
+        if (atCenter(allyPlayer)) {
+            snap(allyPlayer);
+            chooseAiDirection();
+        }
+        move(allyPlayer, PLAYER_SPEED * 0.92f, delta);
+        collectForCar(allyPlayer, false);
+    }
+
+    private void chooseAiDirection() {
+        Cell ally = toCell(allyPlayer);
+        Direction best = Direction.NONE;
+        int bestScore = Integer.MIN_VALUE;
+        for (Direction direction : new Direction[]{Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT}) {
+            if (!canMove(allyPlayer, direction)) {
+                continue;
+            }
+            Cell next = new Cell(ally.x + direction.dx, ally.y + direction.dy);
+            int policePenalty = nearestPoliceDistance(next) < 4 ? -200 : 0;
+            int itemBonus = nearestCollectibleScore(next);
+            int score = policePenalty + itemBonus + random.nextInt(8);
+            if (score > bestScore) {
+                bestScore = score;
+                best = direction;
+            }
+        }
+        allyPlayer.dir = best;
+        allyPlayer.nextDir = best;
+    }
+
+    private int nearestPoliceDistance(Cell cell) {
+        int best = 999;
+        for (Car police : policeCars) {
+            best = Math.min(best, distance(cell, toCell(police)));
+        }
+        return best;
+    }
+
+    private int nearestCollectibleScore(Cell cell) {
+        int best = 0;
+        for (int y = 1; y < mapHeight - 1; y++) {
+            for (int x = 1; x < mapWidth - 1; x++) {
+                int item = grid[y][x];
+                if (item == COIN || item == DIAMOND) {
+                    int value = item == DIAMOND ? 40 : 16;
+                    best = Math.max(best, value - Math.abs(cell.x - x) - Math.abs(cell.y - y));
+                }
+            }
+        }
+        return best;
     }
 
     private void updateArtifact(long now) {
@@ -372,6 +469,9 @@ final class GameView extends View {
         updateBankArtifact(now);
         if (playing && now >= nextArtifactAt) {
             spawnArtifact(now);
+        }
+        if (playing && profEnabled && now >= nextProfArtifactAt) {
+            spawnProfArtifact(now);
         }
     }
 
@@ -408,6 +508,36 @@ final class GameView extends View {
         }
         activeArtifacts.add(new ArtifactDrop(normal.get(random.nextInt(normal.size())), candidates.get(random.nextInt(candidates.size())), now + ARTIFACT_VISIBLE_MS));
         nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
+    }
+
+    private void spawnProfArtifact(long now) {
+        Artifact[] types = new Artifact[]{Artifact.KILLER, Artifact.CHAOS, Artifact.DOUBLE, Artifact.ICE};
+        Artifact artifact = types[random.nextInt(types.length)];
+        ArrayList<Cell> candidates = artifact == Artifact.ICE ? emptyArtifactCandidates() : artifactCandidates(true);
+        if (!candidates.isEmpty()) {
+            activeArtifacts.add(new ArtifactDrop(artifact, candidates.get(random.nextInt(candidates.size())), now + ARTIFACT_VISIBLE_MS));
+        }
+        nextProfArtifactAt = now + PROF_ARTIFACT_INTERVAL_MS;
+    }
+
+    private ArrayList<Cell> emptyArtifactCandidates() {
+        ArrayList<Cell> candidates = new ArrayList<>();
+        Cell playerCell = toCell(player);
+        boolean right = playerCell.x >= mapWidth / 2;
+        boolean bottom = playerCell.y >= mapHeight / 2;
+        int minX = right ? mapWidth / 2 : 1;
+        int maxX = right ? mapWidth - 2 : mapWidth / 2;
+        int minY = bottom ? mapHeight / 2 : 1;
+        int maxY = bottom ? mapHeight - 2 : mapHeight / 2;
+        for (int y = minY; y <= maxY; y++) {
+            for (int x = minX; x <= maxX; x++) {
+                Cell cell = new Cell(x, y);
+                if (grid[y][x] == EMPTY && distance(cell, playerCell) >= 2 && !hasArtifactAt(cell)) {
+                    candidates.add(cell);
+                }
+            }
+        }
+        return candidates;
     }
 
     private void spawnBank(long now) {
@@ -626,13 +756,13 @@ final class GameView extends View {
             if (spacedOut) {
                 policeStarts.add(cell);
             }
-            if (policeStarts.size() == 4) {
+            if (policeStarts.size() == difficulty.policeCount) {
                 break;
             }
         }
 
         for (Cell cell : open) {
-            if (policeStarts.size() == 4) {
+            if (policeStarts.size() == difficulty.policeCount) {
                 break;
             }
             if (!policeStarts.contains(cell)) {
@@ -684,7 +814,8 @@ final class GameView extends View {
             }
             if (atCenter(car)) {
                 snap(car);
-                if (car.dir == Direction.NONE || car.decisionDelay <= 0 || !canMove(car, car.dir)) {
+                boolean iced = now < car.iceUntil && canMove(car, car.dir);
+                if (!iced && (car.dir == Direction.NONE || car.decisionDelay <= 0 || !canMove(car, car.dir))) {
                     choosePoliceDirection(car);
                     car.decisionDelay = 40f + random.nextFloat() * 80f;
                 }
@@ -722,11 +853,12 @@ final class GameView extends View {
             car.dir = Direction.NONE;
             return;
         }
-        int bestDistance = Integer.MAX_VALUE;
+        boolean away = profEnabled && SystemClock.uptimeMillis() < chaosUntil;
+        int bestDistance = away ? Integer.MIN_VALUE : Integer.MAX_VALUE;
         ArrayList<Direction> best = new ArrayList<>();
         for (Direction direction : candidates) {
             int dist = Math.abs(carCell.x + direction.dx - playerCell.x) + Math.abs(carCell.y + direction.dy - playerCell.y);
-            if (dist < bestDistance) {
+            if ((!away && dist < bestDistance) || (away && dist > bestDistance)) {
                 bestDistance = dist;
                 best.clear();
             }
@@ -829,28 +961,41 @@ final class GameView extends View {
     }
 
     private void collectItem() {
-        Cell cell = toCell(player);
+        collectForCar(player, true);
+    }
+
+    private void collectForCar(Car car, boolean mainPlayer) {
+        Cell cell = toCell(car);
         for (int i = activeArtifacts.size() - 1; i >= 0; i--) {
             ArtifactDrop drop = activeArtifacts.get(i);
             if (cell.equals(drop.cell)) {
-                applyArtifact(drop.artifact, SystemClock.uptimeMillis());
-                activeArtifacts.remove(i);
+                if (drop.artifact == Artifact.ICE && policeCars.contains(car)) {
+                    car.iceUntil = SystemClock.uptimeMillis() + 20000L;
+                    activeArtifacts.remove(i);
+                } else if (drop.artifact != Artifact.ICE && mainPlayer) {
+                    applyArtifact(drop.artifact, SystemClock.uptimeMillis());
+                    activeArtifacts.remove(i);
+                }
             }
         }
-        if (bankCell != null && !bankRestorePending && cell.equals(bankCell)) {
+        if (mainPlayer && bankCell != null && !bankRestorePending && cell.equals(bankCell)) {
             applyArtifact(Artifact.BANK, SystemClock.uptimeMillis());
             bankRestorePending = true;
             bankExpiresAt = 0L;
         }
         int item = grid[cell.y][cell.x];
         if (item == COIN || item == DIAMOND) {
-            scoreCollected += item == DIAMOND ? DIAMOND_VALUE : COIN_VALUE;
+            scoreCollected += item == DIAMOND ? DIAMOND_VALUE : coinValue();
             grid[cell.y][cell.x] = EMPTY;
             listener.onHudChanged(scoreCollected, scoreTotal, damage);
-            if (scoreCollected == scoreTotal) {
+            if (scoreCollected >= scoreTotal) {
                 handleStageCompleted();
             }
         }
+    }
+
+    private int coinValue() {
+        return profEnabled && SystemClock.uptimeMillis() < doubleUntil ? 2 : COIN_VALUE;
     }
 
     private void applyArtifact(Artifact artifact, long now) {
@@ -863,6 +1008,12 @@ final class GameView extends View {
             ghostUntil = extendTimer(ghostUntil, now, GHOST_MS);
         } else if (artifact == Artifact.PORTAL) {
             crossedTunnels = !crossedTunnels;
+        } else if (artifact == Artifact.KILLER) {
+            killerUntil = extendTimer(killerUntil, now, 30000L);
+        } else if (artifact == Artifact.CHAOS) {
+            chaosUntil = extendTimer(chaosUntil, now, 20000L);
+        } else if (artifact == Artifact.DOUBLE) {
+            doubleUntil = extendTimer(doubleUntil, now, 20000L);
         } else if (artifact == Artifact.MEDKIT) {
             damage = Math.max(0, damage - 1);
             listener.onHudChanged(scoreCollected, scoreTotal, damage);
@@ -877,18 +1028,18 @@ final class GameView extends View {
     }
 
     private int banknoteBonus() {
-        return difficulty == Difficulty.AMATEUR || difficulty == Difficulty.PRO ? 20 : 10;
+        return difficulty == Difficulty.AMATEUR || difficulty == Difficulty.PRO || difficulty == Difficulty.LEGEND ? 20 : 10;
     }
 
     private int bankWealthBonus() {
-        return difficulty == Difficulty.AMATEUR || difficulty == Difficulty.PRO ? 100 : 50;
+        return difficulty == Difficulty.AMATEUR || difficulty == Difficulty.PRO || difficulty == Difficulty.LEGEND ? 100 : 50;
     }
 
     private int extraPoliceFromBank() {
         if (difficulty == Difficulty.AMATEUR) {
             return 3;
         }
-        if (difficulty == Difficulty.PRO) {
+        if (difficulty == Difficulty.PRO || difficulty == Difficulty.LEGEND) {
             return 4;
         }
         return 2;
@@ -958,6 +1109,7 @@ final class GameView extends View {
             player.invulnerableUntil = 0L;
         }
         nextArtifactAt = SystemClock.uptimeMillis() + ARTIFACT_INTERVAL_MS;
+        nextProfArtifactAt = profEnabled ? SystemClock.uptimeMillis() + PROF_ARTIFACT_INTERVAL_MS : 0L;
         bankAppearsAt = SystemClock.uptimeMillis() + BANK_SPAWN_MS;
         bankExpiresAt = 0L;
         bankCell = null;
@@ -968,6 +1120,7 @@ final class GameView extends View {
         generateMap();
         placeDiamonds();
         createPoliceCars();
+        allyPlayer = aiAllyEnabled && profEnabled ? new Car(new Cell(mapWidth - 2, mapHeight - 2)) : null;
         listener.onHudChanged(scoreCollected, scoreTotal, damage);
     }
 
@@ -1027,6 +1180,10 @@ final class GameView extends View {
             }
         }
         if (hits.isEmpty()) {
+            return;
+        }
+        if (profEnabled && now < killerUntil) {
+            policeCars.remove(hits.get(0));
             return;
         }
         damage++;
@@ -1108,6 +1265,9 @@ final class GameView extends View {
 
         for (Car car : policeCars) {
             drawCar(canvas, car, colors.police, Color.rgb(201, 223, 255), tile, originX, originY, false);
+        }
+        if (allyPlayer != null) {
+            drawCar(canvas, allyPlayer, colors.lighten(colors.player, 70), Color.rgb(243, 176, 71), tile, originX, originY, true);
         }
         long now = SystemClock.uptimeMillis();
         boolean blink = playing && now < player.invulnerableUntil && now >= shieldUntil && (now / 100) % 2 == 0;
@@ -1251,7 +1411,10 @@ final class GameView extends View {
         float badgeX = x;
         badgeX = drawEffectBadge(canvas, badgeX, y, "F", freezeUntil - now, Color.rgb(105, 225, 255));
         badgeX = drawEffectBadge(canvas, badgeX, y, "S", shieldUntil - now, Color.rgb(120, 245, 145));
-        drawEffectBadge(canvas, badgeX, y, "G", ghostUntil - now, Color.rgb(205, 150, 255));
+        badgeX = drawEffectBadge(canvas, badgeX, y, "G", ghostUntil - now, Color.rgb(205, 150, 255));
+        badgeX = drawEffectBadge(canvas, badgeX, y, "K", killerUntil - now, Color.rgb(255, 92, 92));
+        badgeX = drawEffectBadge(canvas, badgeX, y, "C", chaosUntil - now, Color.rgb(255, 185, 80));
+        drawEffectBadge(canvas, badgeX, y, "D", doubleUntil - now, Color.rgb(95, 245, 150));
     }
 
     private float drawEffectBadge(Canvas canvas, float x, float y, String label, long remaining, int color) {
@@ -1275,11 +1438,29 @@ final class GameView extends View {
         float gap = 4f * density;
         float y = 16f * density;
         float left = 12f * density;
+        if (profEnabled && !avatarEncoded.isEmpty()) {
+            drawMiniAvatar(canvas, left + badge / 2f, y, badge * 1.25f);
+            left += badge * 1.55f;
+        }
         float notchHalf = Math.min(58f * density, getWidth() * 0.18f);
         float center = getWidth() / 2f;
         float rightLimit = menuRect.left - 10f * density;
         int index = drawAwardBadgeLane(canvas, 0, left, center - notchHalf, y, badge, gap);
         drawAwardBadgeLane(canvas, index, center + notchHalf, rightLimit, y, badge, gap);
+    }
+
+    private void drawMiniAvatar(Canvas canvas, float x, float y, float size) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(245, 196, 148));
+        canvas.drawCircle(x, y, size * 0.42f, paint);
+        paint.setColor(Color.rgb(48, 34, 24));
+        canvas.drawArc(new RectF(x - size * 0.44f, y - size * 0.48f, x + size * 0.44f, y + size * 0.1f), 180, 180, true, paint);
+        paint.setColor(Color.WHITE);
+        canvas.drawCircle(x - size * 0.14f, y - size * 0.02f, size * 0.07f, paint);
+        canvas.drawCircle(x + size * 0.14f, y - size * 0.02f, size * 0.07f, paint);
+        paint.setColor(Color.rgb(40, 80, 145));
+        canvas.drawCircle(x - size * 0.14f, y - size * 0.02f, size * 0.03f, paint);
+        canvas.drawCircle(x + size * 0.14f, y - size * 0.02f, size * 0.03f, paint);
     }
 
     private int drawAwardBadgeLane(Canvas canvas, int index, float x, float maxX, float y, float badge, float gap) {
@@ -1655,6 +1836,7 @@ final class GameView extends View {
         float angle;
         float decisionDelay;
         long invulnerableUntil;
+        long iceUntil;
         Direction dir = Direction.NONE;
         Direction nextDir = Direction.NONE;
         boolean stopAtCenter;
@@ -1683,7 +1865,11 @@ final class GameView extends View {
         GHOST("G", Color.rgb(185, 125, 255)),
         PORTAL("P", Color.rgb(255, 174, 78)),
         MEDKIT("H", Color.rgb(230, 68, 72)),
-        BANK("B", Color.rgb(58, 174, 92));
+        BANK("B", Color.rgb(58, 174, 92)),
+        KILLER("K", Color.rgb(245, 70, 76)),
+        CHAOS("C", Color.rgb(255, 178, 62)),
+        DOUBLE("D", Color.rgb(72, 225, 116)),
+        ICE("I", Color.rgb(150, 230, 255));
 
         final String label;
         final int color;

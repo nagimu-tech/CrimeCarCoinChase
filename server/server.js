@@ -6,6 +6,7 @@ const path = require("path");
 const PORT = Number(process.env.PORT || 8080);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const VERSION_FILE = path.join(PUBLIC_DIR, "android-version.json");
+const PROF_FILE = path.join(__dirname, "prof-entitlements.json");
 const MAX_DAMAGE = 5;
 const TICK_MS = 25;
 const INVULNERABLE_MS = 3000;
@@ -13,6 +14,7 @@ const BANK_SPAWN_MS = 10000;
 const BANK_VISIBLE_MS = 30000;
 const MEDKIT_VISIBLE_MS = 15000;
 const ARTIFACT_INTERVAL_MS = 15000;
+const PROF_ARTIFACT_INTERVAL_MS = 22500;
 const ARTIFACT_VISIBLE_MS = 15000;
 const FREEZE_MS = 20000;
 const SHIELD_MS = 20000;
@@ -32,6 +34,18 @@ const server = http.createServer((req, res) => {
   }
   if (req.url === "/downloads/pogonya-latest.apk") {
     serveFile(res, path.join(PUBLIC_DIR, "pogonya-latest.apk"), "application/vnd.android.package-archive");
+    return;
+  }
+  if (req.url === "/prof/register" && req.method === "POST") {
+    profRegister(res);
+    return;
+  }
+  if (req.url.startsWith("/prof/status")) {
+    profStatus(req, res);
+    return;
+  }
+  if (req.url === "/prof/set-test" && req.method === "POST") {
+    readJsonBody(req, (body) => profSetTest(body, res));
     return;
   }
   res.writeHead(404);
@@ -67,6 +81,69 @@ function serveFile(res, filePath, contentType) {
     });
     fs.createReadStream(filePath).pipe(res);
   });
+}
+
+function readJsonBody(req, callback) {
+  let raw = "";
+  req.on("data", (chunk) => {
+    raw += chunk;
+    if (raw.length > 64 * 1024) req.destroy();
+  });
+  req.on("end", () => {
+    try {
+      callback(raw ? JSON.parse(raw) : {});
+    } catch {
+      callback({});
+    }
+  });
+}
+
+function readProfStore() {
+  try {
+    return JSON.parse(fs.readFileSync(PROF_FILE, "utf8"));
+  } catch {
+    return { players: {} };
+  }
+}
+
+function writeProfStore(store) {
+  fs.writeFileSync(PROF_FILE, JSON.stringify(store, null, 2));
+}
+
+function profRegister(res) {
+  const store = readProfStore();
+  let installId;
+  do {
+    installId = crypto.randomBytes(16).toString("hex");
+  } while (store.players[installId]);
+  store.players[installId] = { enabled: false, token: crypto.randomBytes(18).toString("hex"), createdAt: Date.now() };
+  writeProfStore(store);
+  sendJson(res, { installId });
+}
+
+function profStatus(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const installId = String(url.searchParams.get("installId") || "");
+  const player = readProfStore().players[installId];
+  sendJson(res, { enabled: !!(player && player.enabled), token: player ? player.token : "" });
+}
+
+function profSetTest(body, res) {
+  const installId = String(body.installId || "");
+  const store = readProfStore();
+  if (!installId || !store.players[installId]) {
+    sendJson(res, { enabled: false, error: "unknown_install_id" }, 404);
+    return;
+  }
+  store.players[installId].enabled = !!body.enabled;
+  store.players[installId].updatedAt = Date.now();
+  writeProfStore(store);
+  sendJson(res, { enabled: store.players[installId].enabled, token: store.players[installId].token });
+}
+
+function sendJson(res, data, status = 200) {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  res.end(JSON.stringify(data));
 }
 
 server.on("upgrade", (req, socket) => {
@@ -109,8 +186,23 @@ setInterval(() => {
   }
 }, TICK_MS);
 
+setInterval(() => {
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    for (const client of [...room.clients]) {
+      if (now - (client.lastSeen || now) > 45000) {
+        client.socket.destroy();
+        removeClient(client);
+      } else if (now - (client.lastPing || 0) > 10000) {
+        client.lastPing = now;
+        sendPing(client);
+      }
+    }
+  }
+}, 5000);
+
 function attachClient(socket) {
-  const client = { socket, room: null, playerId: 0, buffer: Buffer.alloc(0), alive: true };
+  const client = { socket, room: null, playerId: 0, buffer: Buffer.alloc(0), alive: true, lastSeen: Date.now(), lastPing: 0 };
   socket.on("data", (chunk) => {
     client.buffer = Buffer.concat([client.buffer, chunk]);
     readFrames(client);
@@ -149,7 +241,12 @@ function readFrames(client) {
       client.socket.end();
       return;
     }
+    if (opcode === 0xA) {
+      client.lastSeen = Date.now();
+      continue;
+    }
     if (opcode === 0x1) {
+      client.lastSeen = Date.now();
       handleMessage(client, payload.toString("utf8"));
     }
   }
@@ -164,7 +261,8 @@ function handleMessage(client, raw) {
     return;
   }
   if (message.type === "createRoom") {
-    const room = createRoom(message.difficulty || "BEGINNER");
+    const room = createRoom(message.difficulty || "BEGINNER", !!message.profEnabled || !!message.prof);
+    setPlayerMeta(room, 1, message);
     joinRoom(client, room, 1);
     send(client, { type: "roomCreated", code: room.code, playerId: 1 });
     return;
@@ -177,6 +275,7 @@ function handleMessage(client, raw) {
       send(client, { type: "error", message: "Комната уже закрыта" });
       return;
     }
+    setPlayerMeta(room, playerId, message);
     joinRoom(client, room, playerId);
     send(client, { type: "joined", code: room.code, playerId });
     broadcastState(room);
@@ -193,6 +292,7 @@ function handleMessage(client, raw) {
       send(client, { type: "error", message: "Комната уже заполнена" });
       return;
     }
+    setPlayerMeta(room, 2, message);
     joinRoom(client, room, 2);
     send(client, { type: "joined", code: room.code, playerId: 2 });
     broadcastState(room);
@@ -207,17 +307,19 @@ function handleMessage(client, raw) {
   }
 }
 
-function createRoom(difficulty) {
+function createRoom(difficulty, profEnabled = false) {
   let code;
   do {
     code = String(Math.floor(10000 + Math.random() * 90000));
   } while (rooms.has(code));
   difficulty = normalizeDifficulty(difficulty);
+  if (difficulty === "LEGEND" && !profEnabled) difficulty = "BEGINNER";
   const size = mapSize(difficulty);
   const generated = generateMap(size.width, size.height);
   const room = {
     code,
     difficulty,
+    profEnabled,
     width: size.width,
     height: size.height,
     clients: [],
@@ -236,11 +338,13 @@ function createRoom(difficulty) {
     banknoteEventId: 0,
     wealthEventId: 0,
     nextArtifactAt: Date.now() + ARTIFACT_INTERVAL_MS,
+    nextProfArtifactAt: profEnabled ? Date.now() + PROF_ARTIFACT_INTERVAL_MS : 0,
     nextPoliceId: 200,
     collected: 0,
     collectibleTotal: 0,
     total: 0,
     freezeUntil: 0,
+    chaosUntil: 0,
     crossedTunnels: false,
     stage: 1,
     exitPortalOpen: false,
@@ -276,6 +380,7 @@ function joinRoom(client, room, playerId) {
     room.fieldStartedAt = room.startedAt;
     room.bankSpawnAt = room.startedAt + BANK_SPAWN_MS;
     room.nextArtifactAt = room.startedAt + ARTIFACT_INTERVAL_MS;
+    room.nextProfArtifactAt = room.profEnabled ? room.startedAt + PROF_ARTIFACT_INTERVAL_MS : 0;
   }
   room.updatedAt = Date.now();
 }
@@ -301,8 +406,13 @@ function updateRoom(room, delta, now) {
     updatePolice(room, police, delta, now);
   }
   for (const player of room.players) {
-    for (const police of room.police) {
+    for (let i = room.police.length - 1; i >= 0; i--) {
+      const police = room.police[i];
       if (Math.hypot(player.x - police.x, player.y - police.y) < 0.55 && now > (player.invulnerableUntil || 0) && now > (player.shieldUntil || 0)) {
+        if (now < (player.killerUntil || 0)) {
+          room.police.splice(i, 1);
+          continue;
+        }
         player.damage += 1;
         player.invulnerableUntil = now + INVULNERABLE_MS;
         recoverPoliceAfterHit(room, police, player);
@@ -315,6 +425,14 @@ function updateRoom(room, delta, now) {
     broadcast(room, { type: "gameOver", won: false, message: "Поражение: полиция догнала преступников", result: roomResult(room, false) });
   } else if (room.collected >= room.collectibleTotal) {
     handleStageCompleted(room, now);
+  }
+}
+
+function setPlayerMeta(room, playerId, message) {
+  const player = room.players.find((item) => item.id === playerId);
+  if (!player) return;
+  if (typeof message.avatar === "string") {
+    player.avatar = message.avatar.slice(0, 80);
   }
 }
 
@@ -341,6 +459,10 @@ function updateArtifacts(room, now) {
   if (room.nextArtifactAt > 0 && now >= room.nextArtifactAt) {
     spawnRandomArtifact(room, now);
     room.nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
+  }
+  if (room.profEnabled && room.nextProfArtifactAt > 0 && now >= room.nextProfArtifactAt) {
+    spawnProfArtifact(room, now);
+    room.nextProfArtifactAt = now + PROF_ARTIFACT_INTERVAL_MS;
   }
   if (!room.bankCell && room.bankSpawnAt > 0 && now >= room.bankSpawnAt) {
     spawnBank(room, now);
@@ -372,15 +494,16 @@ function updatePolice(room, police, delta, now) {
   if (atCenter(police)) {
     police.x = Math.round(police.x - 0.5) + 0.5;
     police.y = Math.round(police.y - 0.5) + 0.5;
-    const options = ["UP", "DOWN", "LEFT", "RIGHT"].filter((dir) => canMove(room.grid, police, dir));
-    options.sort((a, b) => distanceAfter(police, a, target) - distanceAfter(police, b, target));
-    police.dir = options[0] || police.dir;
+    if (!(now < (police.iceUntil || 0) && canMove(room.grid, police, police.dir))) {
+      police.dir = chooseOpenDirection(room, police, target, now < (room.chaosUntil || 0)) || police.dir;
+    }
   } else if (police.dir === "NONE") {
     police.x = centerCoordinate(police.x);
     police.y = centerCoordinate(police.y);
     police.dir = chooseOpenDirection(room, police, target) || "NONE";
   }
   move(room, police, policeSpeed(room.difficulty), delta);
+  collectPoliceArtifact(room, police, now);
 }
 
 function freezePolice(police) {
@@ -464,13 +587,15 @@ function collect(room, player) {
   for (let i = room.artifacts.length - 1; i >= 0; i--) {
     const artifact = room.artifacts[i];
     if (artifact.x === x && artifact.y === y) {
-      applyArtifact(room, player, artifact);
-      room.artifacts.splice(i, 1);
+      if (artifact.type !== "ICE") {
+        applyArtifact(room, player, artifact);
+        room.artifacts.splice(i, 1);
+      }
     }
   }
   const item = room.grid[y] && room.grid[y][x];
   if (item === "o" || item === "d") {
-    const value = item === "d" ? 10 : 1;
+    const value = item === "d" ? 10 : (Date.now() < (player.doubleUntil || 0) ? 2 : 1);
     player.score += value;
     room.collected += value;
     room.grid[y][x] = ".";
@@ -514,6 +639,31 @@ function applyArtifact(room, player, artifact) {
   }
   if (artifact.type === "PORTAL") {
     room.crossedTunnels = !room.crossedTunnels;
+    return;
+  }
+  if (artifact.type === "KILLER") {
+    player.killerUntil = Math.max(player.killerUntil || 0, Date.now()) + 30000;
+    return;
+  }
+  if (artifact.type === "CHAOS") {
+    room.chaosUntil = Math.max(room.chaosUntil || 0, Date.now()) + 20000;
+    return;
+  }
+  if (artifact.type === "DOUBLE") {
+    player.doubleUntil = Math.max(player.doubleUntil || 0, Date.now()) + 20000;
+  }
+}
+
+function collectPoliceArtifact(room, police, now) {
+  const x = Math.round(police.x - 0.5);
+  const y = Math.round(police.y - 0.5);
+  for (let i = room.artifacts.length - 1; i >= 0; i--) {
+    const artifact = room.artifacts[i];
+    if (artifact.type === "ICE" && artifact.x === x && artifact.y === y) {
+      police.iceUntil = now + 20000;
+      room.artifacts.splice(i, 1);
+      return;
+    }
   }
 }
 
@@ -554,6 +704,37 @@ function spawnRandomArtifact(room, now) {
   const cell = candidates[Math.floor(Math.random() * candidates.length)];
   const type = types[Math.floor(Math.random() * types.length)];
   room.artifacts.push({ type, x: cell.x, y: cell.y, expiresAt: now + ARTIFACT_VISIBLE_MS });
+}
+
+function spawnProfArtifact(room, now) {
+  const target = room.players[Math.floor(Math.random() * room.players.length)];
+  const types = ["KILLER", "CHAOS", "DOUBLE", "ICE"];
+  const type = types[Math.floor(Math.random() * types.length)];
+  const candidates = type === "ICE" ? emptyArtifactCandidates(room, target) : artifactCandidates(room, target, true);
+  if (candidates.length === 0) return;
+  const cell = candidates[Math.floor(Math.random() * candidates.length)];
+  room.artifacts.push({ type, x: cell.x, y: cell.y, expiresAt: now + ARTIFACT_VISIBLE_MS });
+}
+
+function emptyArtifactCandidates(room, target) {
+  const cell = { x: Math.round(target.x - 0.5), y: Math.round(target.y - 0.5) };
+  const right = cell.x >= room.width / 2;
+  const bottom = cell.y >= room.height / 2;
+  const minX = right ? Math.floor(room.width / 2) : 1;
+  const maxX = right ? room.width - 2 : Math.floor(room.width / 2);
+  const minY = bottom ? Math.floor(room.height / 2) : 1;
+  const maxY = bottom ? room.height - 2 : Math.floor(room.height / 2);
+  const candidates = [];
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (room.grid[y][x] !== ".") continue;
+      if (room.players.some((player) => Math.round(player.x - 0.5) === x && Math.round(player.y - 0.5) === y)) continue;
+      if (room.police.some((police) => Math.round(police.x - 0.5) === x && Math.round(police.y - 0.5) === y)) continue;
+      if (room.artifacts.some((artifact) => artifact.x === x && artifact.y === y)) continue;
+      candidates.push({ x, y });
+    }
+  }
+  return candidates;
 }
 
 function restoreBankWall(room) {
@@ -600,7 +781,7 @@ function sameCell(actor, cell) {
 
 function bankReward(difficulty) {
   if (difficulty === "AMATEUR") return { banknotes: 20, wealth: 100, police: 3 };
-  if (difficulty === "PRO") return { banknotes: 20, wealth: 100, police: 4 };
+  if (difficulty === "PRO" || difficulty === "LEGEND") return { banknotes: 20, wealth: 100, police: 4 };
   return { banknotes: 10, wealth: 50, police: 2 };
 }
 
@@ -663,7 +844,9 @@ function beginNextStage(room, now) {
   room.bankSpawnAt = now + BANK_SPAWN_MS;
   room.bankExpiresAt = 0;
   room.nextArtifactAt = now + ARTIFACT_INTERVAL_MS;
+  room.nextProfArtifactAt = room.profEnabled ? now + PROF_ARTIFACT_INTERVAL_MS : 0;
   room.freezeUntil = 0;
+  room.chaosUntil = 0;
   room.crossedTunnels = false;
   room.fieldStartedAt = now;
   room.players[0].x = 1.5;
@@ -677,6 +860,8 @@ function beginNextStage(room, now) {
   for (const player of room.players) {
     player.shieldUntil = 0;
     player.ghostUntil = 0;
+    player.killerUntil = 0;
+    player.doubleUntil = 0;
     player.invulnerableUntil = 0;
   }
   room.police = generated.policeStarts.slice(0, difficultyPoliceCount(room.difficulty))
@@ -808,7 +993,7 @@ function normalizeDirection(direction) {
 }
 
 function normalizeDifficulty(difficulty) {
-  return ["DEBUT", "BEGINNER", "AMATEUR", "PRO"].includes(difficulty) ? difficulty : "BEGINNER";
+  return ["DEBUT", "BEGINNER", "AMATEUR", "PRO", "LEGEND"].includes(difficulty) ? difficulty : "BEGINNER";
 }
 
 function generateMap(width, height) {
@@ -879,15 +1064,19 @@ function placeStarts(grid, width, height) {
       if (grid[y][x] !== "#") open.push({ x, y });
     }
   }
-  open.sort((a, b) => distance(b, playerCells[0]) - distance(a, playerCells[0]));
+  open.sort((a, b) => {
+    const bd = distance(b, playerCells[0]) + distance(b, playerCells[1]);
+    const ad = distance(a, playerCells[0]) + distance(a, playerCells[1]);
+    return bd - ad;
+  });
   const starts = [];
   for (const cell of open) {
-    if (distance(cell, playerCells[0]) <= 12) continue;
+    if (Math.min(distance(cell, playerCells[0]), distance(cell, playerCells[1])) <= 9) continue;
     if (starts.every((used) => distance(cell, used) > 8)) starts.push(cell);
-    if (starts.length === 4) break;
+    if (starts.length === 5) break;
   }
   for (const cell of open) {
-    if (starts.length === 4) break;
+    if (starts.length === 5) break;
     if (!starts.some((used) => used.x === cell.x && used.y === cell.y)) starts.push(cell);
   }
   for (const cell of starts) grid[cell.y][cell.x] = ".";
@@ -911,7 +1100,7 @@ function countWealth(grid) {
 }
 
 function car(id, x, y, dir) {
-  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, score: 0, bonusTotal: 0, banknotes: 0, invulnerableUntil: 0, shieldUntil: 0, ghostUntil: 0 };
+  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, score: 0, bonusTotal: 0, banknotes: 0, invulnerableUntil: 0, shieldUntil: 0, ghostUntil: 0, killerUntil: 0, doubleUntil: 0, iceUntil: 0, avatar: "" };
 }
 
 function mapSize(difficulty) {
@@ -921,6 +1110,7 @@ function mapSize(difficulty) {
 }
 
 function difficultyPoliceCount(difficulty) {
+  if (difficulty === "LEGEND") return 5;
   if (difficulty === "AMATEUR") return 2;
   if (difficulty === "PRO") return 3;
   return 1;
@@ -935,6 +1125,7 @@ function policeSpeed(difficulty) {
   if (difficulty === "BEGINNER") return 1.8;
   if (difficulty === "AMATEUR") return 2.05;
   if (difficulty === "PRO") return 2.25;
+  if (difficulty === "LEGEND") return 2.35;
   return 1.8;
 }
 
@@ -943,6 +1134,7 @@ function fieldBanknotes(difficulty) {
   if (difficulty === "BEGINNER") return 10;
   if (difficulty === "AMATEUR") return 15;
   if (difficulty === "PRO") return 20;
+  if (difficulty === "LEGEND") return 30;
   return 10;
 }
 
@@ -985,13 +1177,17 @@ function serializeRoom(room, playerId) {
       banknotes: player.banknotes || 0,
       shieldActive: Date.now() < (player.shieldUntil || 0),
       ghostActive: Date.now() < (player.ghostUntil || 0),
+      killerActive: Date.now() < (player.killerUntil || 0),
+      doubleActive: Date.now() < (player.doubleUntil || 0),
       invulnerableActive: Date.now() < (player.invulnerableUntil || 0) && Date.now() >= (player.shieldUntil || 0),
+      avatar: player.avatar || "",
     })),
     police: room.police.map((car) => ({
       id: car.id,
       x: car.x,
       y: car.y,
       angle: car.angle,
+      iceActive: Date.now() < (car.iceUntil || 0),
     })),
     artifacts: room.artifacts.map((artifact) => ({
       type: artifact.type,
@@ -1003,6 +1199,7 @@ function serializeRoom(room, playerId) {
     score: viewer ? viewer.score : 0,
     total: room.collectibleTotal + (viewer ? viewer.bonusTotal : 0),
     damage: viewer ? viewer.damage : Math.max(...room.players.map((player) => player.damage)),
+    chaosActive: Date.now() < (room.chaosUntil || 0),
     statusText: room.started ? "" : "Ожидание второго игрока",
   };
 }
@@ -1045,4 +1242,9 @@ function send(client, message) {
     header.push(127, 0, 0, 0, 0, (payload.length >> 24) & 255, (payload.length >> 16) & 255, (payload.length >> 8) & 255, payload.length & 255);
   }
   client.socket.write(Buffer.concat([Buffer.from(header), payload]));
+}
+
+function sendPing(client) {
+  if (!client.socket.writable) return;
+  client.socket.write(Buffer.from([0x89, 0x00]));
 }

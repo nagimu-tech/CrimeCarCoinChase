@@ -59,6 +59,7 @@ final class OnlineGameView extends View {
     private float gestureStartX;
     private float gestureStartY;
     private Direction lastSent = Direction.NONE;
+    private long lastDirectionSentAt;
     private List<String> awardSymbols = new ArrayList<>();
     private int otherPlayerColor = Color.rgb(255, 135, 46);
 
@@ -103,6 +104,7 @@ final class OnlineGameView extends View {
     void resetInputState() {
         gestureActive = false;
         lastSent = Direction.NONE;
+        lastDirectionSentAt = 0L;
     }
 
     int myScore() {
@@ -207,6 +209,10 @@ final class OnlineGameView extends View {
             car.ghostActive = item.optBoolean("ghostActive", false);
             car.shieldActive = item.optBoolean("shieldActive", false);
             car.invulnerableActive = item.optBoolean("invulnerableActive", false);
+            car.killerActive = item.optBoolean("killerActive", false);
+            car.doubleActive = item.optBoolean("doubleActive", false);
+            car.iceActive = item.optBoolean("iceActive", false);
+            car.avatar = item.optString("avatar", "");
         }
         for (int i = target.size() - 1; i >= 0; i--) {
             if (!seen.contains(target.get(i).id)) {
@@ -249,6 +255,9 @@ final class OnlineGameView extends View {
         drawTopBar(canvas);
         drawBottomPlayerHud(canvas);
         drawRoomCodeFooter(canvas);
+        if (gestureActive) {
+            sendDirection(lastSent);
+        }
         postInvalidateDelayed(16);
     }
 
@@ -331,10 +340,12 @@ final class OnlineGameView extends View {
     }
 
     private void sendDirection(Direction direction) {
-        if (direction == lastSent) {
+        long now = SystemClock.uptimeMillis();
+        if (direction == lastSent && now - lastDirectionSentAt < 350L) {
             return;
         }
         lastSent = direction;
+        lastDirectionSentAt = now;
         listener.onDirection(direction);
     }
 
@@ -894,6 +905,21 @@ final class OnlineGameView extends View {
         if (car.shieldActive && x < maxX - 26f * density) {
             paint.setColor(Color.rgb(92, 235, 132));
             canvas.drawText("S", x, baseline, paint);
+            x += 24f * density;
+        }
+        if (car.killerActive && x < maxX - 26f * density) {
+            paint.setColor(Color.rgb(245, 70, 76));
+            canvas.drawText("K", x, baseline, paint);
+            x += 24f * density;
+        }
+        if (car.doubleActive && x < maxX - 26f * density) {
+            paint.setColor(Color.rgb(72, 225, 116));
+            canvas.drawText("D", x, baseline, paint);
+            x += 24f * density;
+        }
+        if (car.iceActive && x < maxX - 26f * density) {
+            paint.setColor(Color.rgb(150, 230, 255));
+            canvas.drawText("I", x, baseline, paint);
         }
         paint.setColor(Color.WHITE);
         paint.setFakeBoldText(false);
@@ -960,11 +986,21 @@ final class OnlineGameView extends View {
             drawBitmapIcon(canvas, "medkit", x - tile * 0.3f, y - tile * 0.3f, tile * 0.6f);
         } else if ("BANK".equals(artifact.type)) {
             drawBitmapIcon(canvas, "bank", x - tile * 0.3f, y - tile * 0.3f, tile * 0.6f);
-        } else if ("FREEZER".equals(artifact.type) || "SHIELD".equals(artifact.type) || "PORTAL".equals(artifact.type)) {
-            String label = "FREEZER".equals(artifact.type) ? "F" : "SHIELD".equals(artifact.type) ? "S" : "P";
+        } else if ("FREEZER".equals(artifact.type) || "SHIELD".equals(artifact.type) || "PORTAL".equals(artifact.type)
+                || "KILLER".equals(artifact.type) || "CHAOS".equals(artifact.type) || "DOUBLE".equals(artifact.type) || "ICE".equals(artifact.type)) {
+            String label = "FREEZER".equals(artifact.type) ? "F"
+                    : "SHIELD".equals(artifact.type) ? "S"
+                    : "PORTAL".equals(artifact.type) ? "P"
+                    : "KILLER".equals(artifact.type) ? "K"
+                    : "CHAOS".equals(artifact.type) ? "C"
+                    : "DOUBLE".equals(artifact.type) ? "D" : "I";
             int color = "FREEZER".equals(artifact.type) ? Color.rgb(70, 210, 255)
                     : "SHIELD".equals(artifact.type) ? Color.rgb(77, 230, 116)
-                    : Color.rgb(255, 174, 78);
+                    : "PORTAL".equals(artifact.type) ? Color.rgb(255, 174, 78)
+                    : "KILLER".equals(artifact.type) ? Color.rgb(245, 70, 76)
+                    : "CHAOS".equals(artifact.type) ? Color.rgb(255, 178, 62)
+                    : "DOUBLE".equals(artifact.type) ? Color.rgb(72, 225, 116)
+                    : Color.rgb(150, 230, 255);
             drawLetterArtifact(canvas, x, y, tile, label, color);
         } else if ("GHOST".equals(artifact.type)) {
             drawLetterArtifact(canvas, x, y, tile, "G", Color.rgb(185, 125, 255));
@@ -1092,6 +1128,10 @@ final class OnlineGameView extends View {
         boolean ghostActive;
         boolean shieldActive;
         boolean invulnerableActive;
+        boolean killerActive;
+        boolean doubleActive;
+        boolean iceActive;
+        String avatar = "";
     }
 
     private static final class RemoteArtifact {

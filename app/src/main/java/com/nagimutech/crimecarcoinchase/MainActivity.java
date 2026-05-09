@@ -26,6 +26,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TableLayout;
 import android.widget.TableRow;
 import android.widget.TextView;
@@ -35,8 +36,11 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -56,10 +60,13 @@ public final class MainActivity extends Activity implements GameView.Listener {
     private Difficulty difficulty = Difficulty.BEGINNER;
     private int lastOnlineBanknoteEventId;
     private int lastOnlineWealthEventId;
+    private int pendingBanknotes;
     private String onlineRoomCode = "";
     private int onlinePlayerId;
     private String onlineJoinCode;
     private boolean onlineReconnect;
+    private boolean profEnabled;
+    private boolean aiAllyEnabled;
     private int onlineOtherPlayerColor = Color.rgb(255, 135, 46);
 
     @Override
@@ -78,18 +85,22 @@ public final class MainActivity extends Activity implements GameView.Listener {
         prefs = getSharedPreferences(GameConfig.PREFS, MODE_PRIVATE);
         prefs.edit().putInt(GameConfig.PREF_SCHEMA, GameConfig.STORAGE_SCHEMA).apply();
         loadSavedColors();
+        profEnabled = prefs.getBoolean(GameConfig.PREF_PROF_ENABLED, false);
         recalculateAwardsFromStoredProgress();
         setTitle("Погоня за монетами");
 
         root = new FrameLayout(this);
         root.setBackgroundColor(colors.background);
         gameView = new GameView(this, colors, this);
-        gameView.setBanknotes(banknotes());
+        gameView.setProfEnabled(profEnabled);
+        gameView.setAvatar(prefs.getString(GameConfig.PREF_AVATAR, ""));
+        gameView.setBanknotes(displayedBanknotes());
         root.addView(gameView, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
         refreshAwardHud();
         showSplashScreen();
         checkForUpdates();
+        refreshProfStatus();
     }
 
     @Override
@@ -180,17 +191,24 @@ public final class MainActivity extends Activity implements GameView.Listener {
     }
 
     @Override
+    public void onRoundStarted(Difficulty difficulty) {
+        pendingBanknotes = 0;
+        updateBanknoteHud();
+    }
+
+    @Override
     public void onFieldCompleted(Difficulty difficulty) {
-        addBanknotes(banknotesFor(difficulty));
+        addPendingBanknotes(banknotesFor(difficulty));
     }
 
     @Override
     public void onBankBonus(Difficulty difficulty, int banknotes) {
-        addBanknotes(banknotes);
+        addPendingBanknotes(banknotes);
     }
 
     @Override
     public void onWin(GameResult result) {
+        commitPendingBanknotes();
         saveWin(result);
         showWinDialog(result);
     }
@@ -198,6 +216,8 @@ public final class MainActivity extends Activity implements GameView.Listener {
     @Override
     public void onLose(GameResult result) {
         recordCompletedGameTime(result.startedAt);
+        pendingBanknotes = 0;
+        updateBanknoteHud();
         updateAwards(result);
         refreshAwardHud();
         showLoseDialog(result);
@@ -236,11 +256,11 @@ public final class MainActivity extends Activity implements GameView.Listener {
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, difficultyLabels());
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinner.setAdapter(adapter);
-        spinner.setSelection(difficulty.ordinal());
+        spinner.setSelection(Math.max(0, visibleDifficulties().indexOf(difficulty)));
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                difficulty = Difficulty.values()[position];
+                difficulty = visibleDifficulties().get(position);
             }
 
             @Override
@@ -248,6 +268,33 @@ public final class MainActivity extends Activity implements GameView.Listener {
             }
         });
         panel.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        Switch prof = new Switch(this);
+        prof.setText("ПРОФ-режим");
+        prof.setTextColor(Color.WHITE);
+        prof.setTextSize(16f);
+        prof.setChecked(profEnabled);
+        prof.setOnCheckedChangeListener((buttonView, isChecked) -> setProfMode(isChecked));
+        panel.addView(prof, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        Button avatar = new Button(this);
+        avatar.setText("Аватар");
+        avatar.setAllCaps(false);
+        avatar.setEnabled(profEnabled);
+        avatar.setOnClickListener(v -> showAvatarDialog());
+        panel.addView(avatar, new LinearLayout.LayoutParams(-1, dp(46)));
+
+        Switch ally = new Switch(this);
+        ally.setText("Играть вдвоём с компьютером");
+        ally.setTextColor(Color.WHITE);
+        ally.setTextSize(16f);
+        ally.setEnabled(profEnabled);
+        ally.setChecked(aiAllyEnabled);
+        ally.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            aiAllyEnabled = isChecked && profEnabled;
+            gameView.setAiAllyEnabled(aiAllyEnabled);
+        });
+        panel.addView(ally, new LinearLayout.LayoutParams(-1, dp(48)));
 
         if (System.currentTimeMillis() < 0L) {
         LinearLayout row1 = new LinearLayout(this);
@@ -309,6 +356,133 @@ public final class MainActivity extends Activity implements GameView.Listener {
         button.setAllCaps(false);
         button.setOnClickListener(v -> showColorDialog(target));
         return button;
+    }
+
+    private void setProfMode(boolean enabled) {
+        syncProfStatus(enabled);
+    }
+
+    private void refreshProfStatus() {
+        new Thread(() -> {
+            try {
+                String installId = ensureInstallId();
+                JSONObject result = getJson(GameConfig.PROF_STATUS_URL + "?installId=" + URLEncoder.encode(installId, "UTF-8"));
+                boolean enabled = result.optBoolean("enabled", profEnabled);
+                runOnUiThread(() -> applyProfMode(enabled));
+            } catch (Exception ignored) {
+            }
+        }, "prof-status").start();
+    }
+
+    private void applyProfMode(boolean enabled) {
+        profEnabled = enabled;
+        prefs.edit().putBoolean(GameConfig.PREF_PROF_ENABLED, enabled).apply();
+        if (!profEnabled && difficulty == Difficulty.LEGEND) {
+            difficulty = Difficulty.BEGINNER;
+        }
+        if (!profEnabled) {
+            aiAllyEnabled = false;
+        }
+        gameView.setProfEnabled(profEnabled);
+        gameView.setAiAllyEnabled(aiAllyEnabled);
+        Toast.makeText(this, profEnabled ? "ПРОФ-режим включён" : "ПРОФ-режим выключен", Toast.LENGTH_SHORT).show();
+    }
+
+    private void syncProfStatus(boolean requestedEnabled) {
+        new Thread(() -> {
+            try {
+                String installId = ensureInstallId();
+                JSONObject result = postJson(GameConfig.PROF_SET_TEST_URL, "{\"installId\":\"" + installId + "\",\"enabled\":" + requestedEnabled + "}");
+                boolean enabled = result.optBoolean("enabled", requestedEnabled);
+                runOnUiThread(() -> applyProfMode(enabled));
+            } catch (Exception e) {
+                runOnUiThread(() -> applyProfMode(requestedEnabled || profEnabled));
+            }
+        }, "prof-sync").start();
+    }
+
+    private String ensureInstallId() throws Exception {
+        String existing = prefs.getString(GameConfig.PREF_PROF_INSTALL_ID, "");
+        if (existing != null && !existing.isEmpty()) {
+            return existing;
+        }
+        JSONObject json = postJson(GameConfig.PROF_REGISTER_URL, "{}");
+        String installId = json.optString("installId", "");
+        if (installId.isEmpty()) {
+            throw new IllegalStateException("installId empty");
+        }
+        prefs.edit().putString(GameConfig.PREF_PROF_INSTALL_ID, installId).apply();
+        return installId;
+    }
+
+    private JSONObject getJson(String rawUrl) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(rawUrl).openConnection();
+        connection.setConnectTimeout(3500);
+        connection.setReadTimeout(3500);
+        connection.setRequestMethod("GET");
+        try {
+            return readJson(connection);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private JSONObject postJson(String rawUrl, String body) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(rawUrl).openConnection();
+        connection.setConnectTimeout(3500);
+        connection.setReadTimeout(3500);
+        connection.setRequestMethod("POST");
+        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+        connection.setDoOutput(true);
+        try (OutputStream out = connection.getOutputStream()) {
+            out.write(body.getBytes(StandardCharsets.UTF_8));
+        }
+        try {
+            return readJson(connection);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private JSONObject readJson(HttpURLConnection connection) throws Exception {
+        if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) {
+            throw new IllegalStateException("HTTP " + connection.getResponseCode());
+        }
+        StringBuilder body = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                body.append(line);
+            }
+        }
+        return new JSONObject(body.toString());
+    }
+
+    private void showAvatarDialog() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(18), dp(12), dp(18), dp(8));
+        AvatarView preview = new AvatarView(this, prefs.getString(GameConfig.PREF_AVATAR, "0,0,0,0,0,0,0,0,0"));
+        panel.addView(preview, new LinearLayout.LayoutParams(-1, dp(180)));
+        String[] labels = {"Голова", "Шея", "Причёска", "Рот", "Глаза", "Цвет глаз", "Нос", "Пол/тип", "Уши", "Кожа"};
+        for (int i = 0; i < labels.length; i++) {
+            final int index = i;
+            Button button = new Button(this);
+            button.setAllCaps(false);
+            button.setText(labels[i]);
+            button.setOnClickListener(v -> {
+                preview.bump(index);
+                prefs.edit().putString(GameConfig.PREF_AVATAR, preview.encoded()).apply();
+                gameView.setAvatar(preview.encoded());
+                gameView.invalidate();
+            });
+            panel.addView(button, new LinearLayout.LayoutParams(-1, dp(42)));
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Аватар")
+                .setView(panel)
+                .setPositiveButton("Готово", null)
+                .show();
     }
 
     private void showColorDialog(String target) {
@@ -431,6 +605,11 @@ public final class MainActivity extends Activity implements GameView.Listener {
         palette.setAllCaps(false);
         panel.addView(palette, new LinearLayout.LayoutParams(-1, dp(48)));
 
+        Button aiAlly = new Button(this);
+        aiAlly.setText("Играть вдвоём с компьютером (ПРОФ)");
+        aiAlly.setAllCaps(false);
+        panel.addView(aiAlly, new LinearLayout.LayoutParams(-1, dp(48)));
+
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Играть вдвоём")
                 .setView(panel)
@@ -442,6 +621,20 @@ public final class MainActivity extends Activity implements GameView.Listener {
             startOnlineSession(GameConfig.MULTIPLAYER_WS_URL, null);
         });
         palette.setOnClickListener(v -> showOnlinePaletteDialog());
+        aiAlly.setOnClickListener(v -> {
+            if (!profEnabled) {
+                Toast.makeText(this, "Режим с компьютером доступен в ПРОФ", Toast.LENGTH_LONG).show();
+                return;
+            }
+            dialog.dismiss();
+            root.removeView(splash);
+            pendingBanknotes = 0;
+            updateBanknoteHud();
+            aiAllyEnabled = true;
+            gameView.setProfEnabled(true);
+            gameView.setAiAllyEnabled(true);
+            gameView.start(difficulty);
+        });
         join.setOnClickListener(v -> {
             dialog.dismiss();
             showJoinCodeDialog(splash, GameConfig.MULTIPLAYER_WS_URL);
@@ -525,6 +718,10 @@ public final class MainActivity extends Activity implements GameView.Listener {
             onlineClient = null;
         }
         onlineJoinCode = joinCode;
+        if (!reconnecting) {
+            pendingBanknotes = 0;
+            updateBanknoteHud();
+        }
         if (onlineView == null) {
             onlineView = new OnlineGameView(this, colors, new OnlineGameView.Listener() {
                 @Override
@@ -543,7 +740,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         onlineView.setStatus(reconnecting ? "Повторное подключение..." : joinCode == null ? "Создание комнаты..." : "Вход по коду...");
         lastOnlineBanknoteEventId = 0;
         lastOnlineWealthEventId = 0;
-        onlineView.setBanknotes(banknotes());
+        onlineView.setBanknotes(displayedBanknotes());
         refreshAwardHud();
         if (!reconnecting) {
             root.removeAllViews();
@@ -559,11 +756,11 @@ public final class MainActivity extends Activity implements GameView.Listener {
                     }
                 });
                 if (reconnecting && !onlineRoomCode.isEmpty() && onlinePlayerId > 0) {
-                    sendOnline("{\"type\":\"resumeRoom\",\"code\":\"" + onlineRoomCode + "\",\"playerId\":" + onlinePlayerId + "}");
+                    sendOnline("{\"type\":\"resumeRoom\",\"code\":\"" + onlineRoomCode + "\",\"playerId\":" + onlinePlayerId + ",\"avatar\":" + JSONObject.quote(prefs.getString(GameConfig.PREF_AVATAR, "")) + "}");
                 } else if (joinCode == null) {
-                    sendOnline("{\"type\":\"createRoom\",\"difficulty\":\"" + difficulty.name() + "\"}");
+                    sendOnline("{\"type\":\"createRoom\",\"difficulty\":\"" + difficulty.name() + "\",\"profEnabled\":" + profEnabled + ",\"avatar\":" + JSONObject.quote(prefs.getString(GameConfig.PREF_AVATAR, "")) + "}");
                 } else {
-                    sendOnline("{\"type\":\"joinRoom\",\"code\":\"" + joinCode + "\"}");
+                    sendOnline("{\"type\":\"joinRoom\",\"code\":\"" + joinCode + "\",\"avatar\":" + JSONObject.quote(prefs.getString(GameConfig.PREF_AVATAR, "")) + "}");
                 }
             }
 
@@ -630,23 +827,19 @@ public final class MainActivity extends Activity implements GameView.Listener {
                         int reward = message.optInt("banknotes", 0);
                         if (eventId > lastOnlineBanknoteEventId && reward > 0) {
                             lastOnlineBanknoteEventId = eventId;
-                            addBanknotes(reward);
-                            onlineView.setBanknotes(banknotes());
+                            addPendingBanknotes(reward);
                         }
                     } else if ("wealthBonus".equals(type)) {
                         int eventId = message.optInt("eventId", 0);
                         int wealth = message.optInt("wealth", 0);
-                        Difficulty rewardDifficulty = parseDifficulty(message.optString("difficulty"), difficulty);
                         if (eventId > lastOnlineWealthEventId && wealth > 0) {
                             lastOnlineWealthEventId = eventId;
-                            addWealth(rewardDifficulty, wealth);
-                            recalculateAwardsFromStoredProgress();
-                            refreshAwardHud();
                         }
                     } else if ("gameOver".equals(type)) {
                         onlineView.setStatus(message.optString("message", "Игра завершена"));
                         GameResult result = onlineResult(message.optBoolean("won", false), message.optJSONObject("result"));
                         if (result.won) {
+                            commitPendingBanknotes();
                             saveWin(result);
                             showWinDialog(result);
                         } else {
@@ -846,6 +1039,11 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 + "G: \u041f\u0440\u0438\u0437\u0440\u0430\u043a, \u043d\u0430 7 \u0441\u0435\u043a\u0443\u043d\u0434 \u043f\u043e\u0437\u0432\u043e\u043b\u044f\u0435\u0442 \u0435\u0445\u0430\u0442\u044c \u0441\u043a\u0432\u043e\u0437\u044c \u0441\u0442\u0435\u043d\u044b. \u041c\u0430\u0448\u0438\u043d\u043a\u0430 \u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u0441\u044f \u043f\u043e\u043b\u0443\u043f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u043e\u0439.\n"
                 + "\u0410\u043f\u0442\u0435\u0447\u043a\u0430: \u043f\u043e\u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u043f\u0440\u0438 3 \u0438 \u0431\u043e\u043b\u0435\u0435 \u0443\u0440\u043e\u043d\u0430\u0445 \u0438 \u0443\u0431\u0438\u0440\u0430\u0435\u0442 1 \u0443\u0440\u043e\u043d.\n"
                 + "\u0411\u0430\u043d\u043a: \u043d\u0430 30 \u0441\u0435\u043a\u0443\u043d\u0434 \u043f\u043e\u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u0432 \u0441\u0442\u0435\u043d\u0435, \u0434\u0430\u0435\u0442 \u0431\u043e\u0433\u0430\u0442\u0441\u0442\u0432\u043e \u0438 \u0431\u0430\u043d\u043a\u043d\u043e\u0442\u044b, \u043d\u043e \u0432\u044b\u0437\u044b\u0432\u0430\u0435\u0442 \u0434\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u0443\u044e \u043f\u043e\u043b\u0438\u0446\u0438\u044e.\n\n"
+                + "ПРОФ: открывает уровень «Легенда», аватар, игру с компьютерным напарником и редкие артефакты.\n"
+                + "K: Убийца, 30 секунд позволяет уничтожить полицейскую машинку касанием.\n"
+                + "C: Изменение мира, 20 секунд полиция убегает от преступников.\n"
+                + "D: Двойное богатство, 20 секунд монеты дают 2 богатства.\n"
+                + "I: Лёд для полиции. Его берёт только полиция; после этого она скользит до поворота.\n\n"
                 + "\u0411\u043e\u043a\u043e\u0432\u044b\u0435 \u0434\u044b\u0440\u044b \u0432 \u0441\u0442\u0435\u043d\u0430\u0445 \u043f\u0435\u0440\u0435\u043d\u043e\u0441\u044f\u0442 \u043c\u0430\u0448\u0438\u043d\u043a\u0443 \u043d\u0430 \u0434\u0440\u0443\u0433\u0443\u044e \u0441\u0442\u043e\u0440\u043e\u043d\u0443 \u043a\u0430\u0440\u0442\u044b.";
         new AlertDialog.Builder(this)
                 .setTitle("\u0421\u043f\u0440\u0430\u0432\u043a\u0430")
@@ -908,14 +1106,35 @@ public final class MainActivity extends Activity implements GameView.Listener {
         return prefs.getInt(GameConfig.PREF_BANKNOTES, 0);
     }
 
-    private void addBanknotes(int amount) {
-        prefs.edit().putInt(GameConfig.PREF_BANKNOTES, banknotes() + amount).apply();
+    private int displayedBanknotes() {
+        return banknotes() + pendingBanknotes;
+    }
+
+    private void addPendingBanknotes(int amount) {
+        pendingBanknotes += Math.max(0, amount);
+        updateBanknoteHud();
+    }
+
+    private void commitPendingBanknotes() {
+        if (pendingBanknotes > 0) {
+            addBanknotes(pendingBanknotes);
+            pendingBanknotes = 0;
+            updateBanknoteHud();
+        }
+    }
+
+    private void updateBanknoteHud() {
         if (gameView != null) {
-            gameView.setBanknotes(banknotes());
+            gameView.setBanknotes(displayedBanknotes());
         }
         if (onlineView != null) {
-            onlineView.setBanknotes(banknotes());
+            onlineView.setBanknotes(displayedBanknotes());
         }
+    }
+
+    private void addBanknotes(int amount) {
+        prefs.edit().putInt(GameConfig.PREF_BANKNOTES, banknotes() + amount).apply();
+        updateBanknoteHud();
     }
 
     private int banknotesFor(Difficulty difficulty) {
@@ -928,7 +1147,10 @@ public final class MainActivity extends Activity implements GameView.Listener {
         if (difficulty == Difficulty.AMATEUR) {
             return 15;
         }
-        return 20;
+        if (difficulty == Difficulty.PRO) {
+            return 20;
+        }
+        return 30;
     }
 
     private void buyShopItem(ShopItem item) {
@@ -1327,10 +1549,20 @@ public final class MainActivity extends Activity implements GameView.Listener {
 
     private List<String> difficultyLabels() {
         ArrayList<String> labels = new ArrayList<>();
-        for (Difficulty value : Difficulty.values()) {
+        for (Difficulty value : visibleDifficulties()) {
             labels.add(value.label);
         }
         return labels;
+    }
+
+    private List<Difficulty> visibleDifficulties() {
+        ArrayList<Difficulty> values = new ArrayList<>();
+        for (Difficulty value : Difficulty.values()) {
+            if (value != Difficulty.LEGEND || profEnabled) {
+                values.add(value);
+            }
+        }
+        return values;
     }
 
     private int dp(int value) {
@@ -1441,6 +1673,63 @@ public final class MainActivity extends Activity implements GameView.Listener {
             this.color = color;
             this.difficultyKey = difficultyKey;
             this.threshold = threshold;
+        }
+    }
+
+    private static final class AvatarView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int[] values = new int[10];
+
+        AvatarView(Activity activity, String encoded) {
+            super(activity);
+            String[] parts = encoded == null ? new String[0] : encoded.split(",");
+            for (int i = 0; i < values.length && i < parts.length; i++) {
+                try {
+                    values[i] = Integer.parseInt(parts[i]);
+                } catch (NumberFormatException ignored) {
+                    values[i] = 0;
+                }
+            }
+        }
+
+        void bump(int index) {
+            values[index] = (values[index] + 1) % 4;
+            invalidate();
+        }
+
+        String encoded() {
+            StringBuilder out = new StringBuilder();
+            for (int i = 0; i < values.length; i++) {
+                if (i > 0) out.append(",");
+                out.append(values[i]);
+            }
+            return out.toString();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float w = getWidth();
+            float h = getHeight();
+            float cx = w / 2f;
+            int skin = new int[]{Color.rgb(232, 180, 132), Color.rgb(186, 126, 82), Color.rgb(246, 206, 158), Color.rgb(132, 82, 55)}[values[9]];
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Color.rgb(28, 36, 54));
+            canvas.drawRoundRect(new RectF(cx - h * 0.42f, h * 0.08f, cx + h * 0.42f, h * 0.96f), h * 0.08f, h * 0.08f, paint);
+            paint.setColor(skin);
+            canvas.drawRect(cx - h * 0.09f, h * 0.62f, cx + h * 0.09f, h * 0.82f, paint);
+            canvas.drawOval(cx - h * 0.2f, h * 0.72f, cx + h * 0.2f, h * 1.04f, paint);
+            canvas.drawOval(cx - h * 0.28f, h * 0.18f, cx + h * 0.28f, h * 0.72f, paint);
+            paint.setColor(new int[]{Color.rgb(48, 30, 20), Color.rgb(225, 185, 82), Color.rgb(30, 30, 36), Color.rgb(145, 68, 42)}[values[2]]);
+            canvas.drawArc(new RectF(cx - h * 0.3f, h * 0.12f, cx + h * 0.3f, h * 0.48f), 180, 180, true, paint);
+            paint.setColor(Color.WHITE);
+            canvas.drawOval(cx - h * 0.16f, h * 0.42f, cx - h * 0.04f, h * 0.49f, paint);
+            canvas.drawOval(cx + h * 0.04f, h * 0.42f, cx + h * 0.16f, h * 0.49f, paint);
+            paint.setColor(new int[]{Color.rgb(70, 120, 210), Color.rgb(68, 145, 75), Color.rgb(96, 60, 38), Color.rgb(35, 35, 42)}[values[5]]);
+            canvas.drawCircle(cx - h * 0.1f, h * 0.455f, h * 0.025f, paint);
+            canvas.drawCircle(cx + h * 0.1f, h * 0.455f, h * 0.025f, paint);
+            paint.setColor(Color.rgb(130, 70, 60));
+            canvas.drawArc(new RectF(cx - h * 0.1f, h * 0.55f, cx + h * 0.1f, h * 0.65f), 15, 150, false, paint);
         }
     }
 

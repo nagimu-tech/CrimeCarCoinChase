@@ -1,10 +1,13 @@
 package com.nagimutech.crimecarcoinchase;
 
 final class GameConfig {
-    static final int APP_VERSION_CODE = 29;
-    static final String APP_VERSION = "2.4.4";
+    static final int APP_VERSION_CODE = 30;
+    static final String APP_VERSION = "2.5.0";
     static final String UPDATE_CHECK_URL = "http://217.114.11.79:8080/android-version";
     static final String MULTIPLAYER_WS_URL = "ws://217.114.11.79:8080/game";
+    static final String PROF_REGISTER_URL = "http://217.114.11.79:8080/prof/register";
+    static final String PROF_STATUS_URL = "http://217.114.11.79:8080/prof/status";
+    static final String PROF_SET_TEST_URL = "http://217.114.11.79:8080/prof/set-test";
     static final int STORAGE_SCHEMA = 1;
     static final String PREFS = "pogonya_za_monetami";
     static final String PREF_WINS = "wins_v1";
@@ -18,6 +21,9 @@ final class GameConfig {
     static final String PREF_SELECTED_WALL = "selected_wall_v1";
     static final String PREF_SELECTED_PLAYER = "selected_player_v1";
     static final String PREF_SELECTED_POLICE = "selected_police_v1";
+    static final String PREF_PROF_INSTALL_ID = "prof_install_id_v1";
+    static final String PREF_PROF_ENABLED = "prof_enabled_v1";
+    static final String PREF_AVATAR = "avatar_v1";
     static final String PREF_SCHEMA = "schema";
 
     static final int MAP_WIDTH = 17;
