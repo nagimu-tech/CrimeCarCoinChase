@@ -408,9 +408,12 @@ function updateRoom(room, delta, now) {
   for (const player of room.players) {
     for (let i = room.police.length - 1; i >= 0; i--) {
       const police = room.police[i];
-      if (Math.hypot(player.x - police.x, player.y - police.y) < 0.55 && now > (player.invulnerableUntil || 0) && now > (player.shieldUntil || 0)) {
+      if (Math.hypot(player.x - police.x, player.y - police.y) < 0.55) {
         if (now < (player.killerUntil || 0)) {
           room.police.splice(i, 1);
+          continue;
+        }
+        if (now <= (player.invulnerableUntil || 0) || now <= (player.shieldUntil || 0)) {
           continue;
         }
         player.damage += 1;

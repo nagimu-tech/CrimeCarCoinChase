@@ -1167,12 +1167,6 @@ final class GameView extends View {
     }
 
     private void checkHits(long now) {
-        if (now < shieldUntil) {
-            return;
-        }
-        if (now < player.invulnerableUntil) {
-            return;
-        }
         ArrayList<Car> hits = new ArrayList<>();
         for (Car car : policeCars) {
             if (Math.hypot(car.x - player.x, car.y - player.y) < 0.62f) {
@@ -1184,6 +1178,12 @@ final class GameView extends View {
         }
         if (profEnabled && now < killerUntil) {
             policeCars.remove(hits.get(0));
+            return;
+        }
+        if (now < shieldUntil) {
+            return;
+        }
+        if (now < player.invulnerableUntil) {
             return;
         }
         damage++;
@@ -1287,24 +1287,26 @@ final class GameView extends View {
     private void drawOverlay(Canvas canvas) {
         float barHeight = topBarHeight();
         float button = 44f * density;
-        float margin = 10f * density;
-        float menuTop = 8f * density;
+        float visual = 34f * density;
+        float margin = 8f * density;
+        float menuTop = 2f * density;
         menuRect.set(getWidth() - margin - button, menuTop, getWidth() - margin, menuTop + button);
+        RectF menuVisual = new RectF(menuRect.centerX() - visual / 2f, menuRect.top + 2f * density, menuRect.centerX() + visual / 2f, menuRect.top + 2f * density + visual);
 
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.argb(178, 0, 0, 0));
         canvas.drawRect(0f, 0f, getWidth(), barHeight, paint);
 
         paint.setColor(Color.argb(130, 0, 0, 0));
-        canvas.drawRoundRect(menuRect, 18f * density, 18f * density, paint);
+        canvas.drawRoundRect(menuVisual, 13f * density, 13f * density, paint);
 
         paint.setColor(Color.WHITE);
         paint.setStyle(Paint.Style.FILL);
-        float lineLeft = menuRect.left + 13f * density;
-        float lineRight = menuRect.right - 13f * density;
+        float lineLeft = menuVisual.left + 9f * density;
+        float lineRight = menuVisual.right - 9f * density;
         for (int i = -1; i <= 1; i++) {
-            float ly = menuRect.centerY() + i * 9f * density;
-            canvas.drawRoundRect(new RectF(lineLeft, ly - 2f * density, lineRight, ly + 2f * density), 3f * density, 3f * density, paint);
+            float ly = menuVisual.centerY() + i * 7f * density;
+            canvas.drawRoundRect(new RectF(lineLeft, ly - 1.6f * density, lineRight, ly + 1.6f * density), 3f * density, 3f * density, paint);
         }
 
         paint.setTextAlign(Paint.Align.LEFT);
@@ -1450,17 +1452,7 @@ final class GameView extends View {
     }
 
     private void drawMiniAvatar(Canvas canvas, float x, float y, float size) {
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.rgb(245, 196, 148));
-        canvas.drawCircle(x, y, size * 0.42f, paint);
-        paint.setColor(Color.rgb(48, 34, 24));
-        canvas.drawArc(new RectF(x - size * 0.44f, y - size * 0.48f, x + size * 0.44f, y + size * 0.1f), 180, 180, true, paint);
-        paint.setColor(Color.WHITE);
-        canvas.drawCircle(x - size * 0.14f, y - size * 0.02f, size * 0.07f, paint);
-        canvas.drawCircle(x + size * 0.14f, y - size * 0.02f, size * 0.07f, paint);
-        paint.setColor(Color.rgb(40, 80, 145));
-        canvas.drawCircle(x - size * 0.14f, y - size * 0.02f, size * 0.03f, paint);
-        canvas.drawCircle(x + size * 0.14f, y - size * 0.02f, size * 0.03f, paint);
+        AvatarRenderer.draw(canvas, avatarEncoded, x - size / 2f, y - size / 2f, size, true);
     }
 
     private int drawAwardBadgeLane(Canvas canvas, int index, float x, float maxX, float y, float badge, float gap) {

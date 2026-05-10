@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -22,6 +23,8 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.GridLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -385,6 +388,9 @@ public final class MainActivity extends Activity implements GameView.Listener {
         }
         gameView.setProfEnabled(profEnabled);
         gameView.setAiAllyEnabled(aiAllyEnabled);
+        if (System.currentTimeMillis() >= 0L) {
+            return;
+        }
         Toast.makeText(this, profEnabled ? "ПРОФ-режим включён" : "ПРОФ-режим выключен", Toast.LENGTH_SHORT).show();
     }
 
@@ -459,30 +465,106 @@ public final class MainActivity extends Activity implements GameView.Listener {
     }
 
     private void showAvatarDialog() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(18), dp(12), dp(18), dp(8));
-        AvatarView preview = new AvatarView(this, prefs.getString(GameConfig.PREF_AVATAR, "0,0,0,0,0,0,0,0,0"));
-        panel.addView(preview, new LinearLayout.LayoutParams(-1, dp(180)));
-        String[] labels = {"Голова", "Шея", "Причёска", "Рот", "Глаза", "Цвет глаз", "Нос", "Пол/тип", "Уши", "Кожа"};
-        for (int i = 0; i < labels.length; i++) {
-            final int index = i;
-            Button button = new Button(this);
-            button.setAllCaps(false);
-            button.setText(labels[i]);
-            button.setOnClickListener(v -> {
-                preview.bump(index);
-                prefs.edit().putString(GameConfig.PREF_AVATAR, preview.encoded()).apply();
-                gameView.setAvatar(preview.encoded());
-                gameView.invalidate();
-            });
-            panel.addView(button, new LinearLayout.LayoutParams(-1, dp(42)));
-        }
-        new AlertDialog.Builder(this)
-                .setTitle("Аватар")
-                .setView(panel)
-                .setPositiveButton("Готово", null)
-                .show();
+        showAvatarEditorDialog();
+    }
+
+    private void showAvatarEditorDialog() {
+        int[] values = AvatarRenderer.decode(prefs.getString(GameConfig.PREF_AVATAR, "0,0,0,0,0,0,0,0,0,0"));
+        int[] selected = {0};
+        LinearLayout rootPanel = new LinearLayout(this);
+        rootPanel.setOrientation(LinearLayout.VERTICAL);
+        rootPanel.setBackgroundColor(Color.rgb(12, 28, 32));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(10), dp(8), dp(10), dp(8));
+        header.setBackgroundColor(Color.rgb(9, 24, 30));
+        TextView close = panelText("×");
+        close.setTextSize(34f);
+        close.setGravity(Gravity.CENTER);
+        TextView title = panelText("Изменить аватар");
+        title.setTextSize(19f);
+        title.setTypeface(null, 1);
+        title.setGravity(Gravity.CENTER);
+        TextView done = panelText("ГОТОВО");
+        done.setTextSize(17f);
+        done.setTypeface(null, 1);
+        done.setTextColor(Color.rgb(80, 205, 255));
+        done.setGravity(Gravity.CENTER);
+        header.addView(close, new LinearLayout.LayoutParams(dp(56), dp(52)));
+        header.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1f));
+        header.addView(done, new LinearLayout.LayoutParams(dp(96), dp(52)));
+        rootPanel.addView(header);
+
+        AvatarView preview = new AvatarView(this, values);
+        rootPanel.addView(preview, new LinearLayout.LayoutParams(-1, dp(290)));
+
+        HorizontalScrollView tabsScroll = new HorizontalScrollView(this);
+        tabsScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setPadding(dp(8), 0, dp(8), 0);
+        tabsScroll.addView(tabs, new HorizontalScrollView.LayoutParams(-2, dp(58)));
+        rootPanel.addView(tabsScroll, new LinearLayout.LayoutParams(-1, dp(58)));
+
+        ScrollView optionsScroll = new ScrollView(this);
+        LinearLayout optionsPanel = new LinearLayout(this);
+        optionsPanel.setOrientation(LinearLayout.VERTICAL);
+        optionsPanel.setPadding(dp(14), dp(10), dp(14), dp(18));
+        optionsScroll.addView(optionsPanel);
+        rootPanel.addView(optionsScroll, new LinearLayout.LayoutParams(-1, dp(360)));
+
+        String[] tabIcons = {"♟", "◡", "〰", "☻", "◉", "●", "▢", "◌", "○", "▣"};
+        String[] sectionTitles = {"Форма головы", "Тело", "Причёска", "Рот", "Выражение лица", "Цвет глаз", "Очки", "Тип лица", "Серьги", "Цвет кожи"};
+        Runnable[] rebuild = new Runnable[1];
+        rebuild[0] = () -> {
+            tabs.removeAllViews();
+            for (int i = 0; i < AvatarRenderer.CATEGORY_COUNT; i++) {
+                final int index = i;
+                TextView tab = panelText(tabIcons[i]);
+                tab.setTextSize(25f);
+                tab.setGravity(Gravity.CENTER);
+                tab.setTextColor(index == selected[0] ? Color.rgb(83, 210, 255) : Color.rgb(91, 111, 118));
+                tab.setOnClickListener(v -> {
+                    selected[0] = index;
+                    rebuild[0].run();
+                });
+                tabs.addView(tab, new LinearLayout.LayoutParams(dp(58), dp(54)));
+            }
+            optionsPanel.removeAllViews();
+            TextView section = panelText(sectionTitles[selected[0]]);
+            section.setTextSize(19f);
+            section.setTypeface(null, 1);
+            section.setTextColor(Color.WHITE);
+            optionsPanel.addView(section, new LinearLayout.LayoutParams(-1, dp(44)));
+            GridLayout grid = new GridLayout(this);
+            grid.setColumnCount(2);
+            int count = AvatarRenderer.OPTION_COUNTS[selected[0]];
+            for (int option = 0; option < count; option++) {
+                final int value = option;
+                AvatarOptionView optionView = new AvatarOptionView(this, values, selected[0], value);
+                optionView.setChosen(value == values[selected[0]]);
+                optionView.setOnClickListener(v -> {
+                    values[selected[0]] = value;
+                    preview.setValues(values);
+                    String encoded = AvatarRenderer.encode(values);
+                    prefs.edit().putString(GameConfig.PREF_AVATAR, encoded).apply();
+                    gameView.setAvatar(encoded);
+                    rebuild[0].run();
+                });
+                GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+                lp.width = (getResources().getDisplayMetrics().widthPixels - dp(50)) / 2;
+                lp.height = dp(138);
+                lp.setMargins(dp(5), dp(6), dp(5), dp(10));
+                grid.addView(optionView, lp);
+            }
+            optionsPanel.addView(grid);
+        };
+        rebuild[0].run();
+
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(rootPanel).create();
+        close.setOnClickListener(v -> dialog.dismiss());
+        done.setOnClickListener(v -> dialog.dismiss());
+        dialog.show();
     }
 
     private void showColorDialog(String target) {
@@ -532,6 +614,20 @@ public final class MainActivity extends Activity implements GameView.Listener {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setGravity(Gravity.CENTER_HORIZONTAL);
         content.setPadding(dp(24), dp(34), dp(24), dp(42));
+        if (profEnabled) {
+            TextView prof = panelText("ПРОФ");
+            prof.setGravity(Gravity.CENTER);
+            prof.setTextSize(17f);
+            prof.setTypeface(null, 1);
+            prof.setTextColor(Color.rgb(125, 224, 255));
+            prof.setShadowLayer(9f, 0f, 2f, Color.rgb(5, 12, 24));
+            prof.setBackground(glassBackground(Color.argb(50, 4, 22, 34), Color.argb(110, 110, 220, 255), dp(15), 1));
+            prof.setPadding(dp(16), dp(4), dp(16), dp(5));
+            LinearLayout.LayoutParams profParams = new LinearLayout.LayoutParams(-2, -2);
+            profParams.topMargin = dp(4);
+            profParams.bottomMargin = dp(8);
+            content.addView(prof, profParams);
+        }
         TextView title = panelText("Погоня за монетами");
         title.setGravity(Gravity.CENTER);
         title.setTextSize(28f);
@@ -1028,6 +1124,10 @@ public final class MainActivity extends Activity implements GameView.Listener {
     }
 
     private void showHelpDialog() {
+        showRichHelpDialog();
+        if (System.currentTimeMillis() >= 0L) {
+            return;
+        }
         String text = "\u0426\u0435\u043b\u044c: \u0441\u043e\u0431\u0440\u0430\u0442\u044c \u0432\u0441\u0435 \u043c\u043e\u043d\u0435\u0442\u044b \u0438 \u0430\u043b\u043c\u0430\u0437\u044b, \u043d\u0435 \u043f\u043e\u043b\u0443\u0447\u0438\u0432 5 \u0443\u0440\u043e\u043d\u043e\u0432.\n\n"
                 + "\u0423\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435: \u043a\u043e\u0441\u043d\u0438\u0441\u044c \u044d\u043a\u0440\u0430\u043d\u0430 \u0438 \u0432\u0435\u0434\u0438 \u043f\u0430\u043b\u0435\u0446 \u0432\u0432\u0435\u0440\u0445, \u0432\u043d\u0438\u0437, \u0432\u043b\u0435\u0432\u043e \u0438\u043b\u0438 \u0432\u043f\u0440\u0430\u0432\u043e. \u0412\u0435\u0440\u043d\u0438 \u043f\u0430\u043b\u0435\u0446 \u043a \u0446\u0435\u043d\u0442\u0440\u0443 \u0436\u0435\u0441\u0442\u0430 \u0438\u043b\u0438 \u043e\u0442\u043f\u0443\u0441\u0442\u0438, \u0447\u0442\u043e\u0431\u044b \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c\u0441\u044f.\n\n"
                 + "\u041d\u0430 \u0432\u0441\u0435\u0445 \u0443\u0440\u043e\u0432\u043d\u044f\u0445, \u043a\u0440\u043e\u043c\u0435 \u00ab\u0414\u0435\u0431\u044e\u0442\u0430\u00bb, \u043d\u0443\u0436\u043d\u043e \u043f\u0440\u043e\u0439\u0442\u0438 3 \u043f\u043e\u043b\u044f. \u041a\u043e\u0433\u0434\u0430 \u0432\u0441\u0435 \u043c\u043e\u043d\u0435\u0442\u044b \u0438 \u0430\u043b\u043c\u0430\u0437\u044b \u0441\u043e\u0431\u0440\u0430\u043d\u044b, \u0432 \u0441\u0442\u0435\u043d\u0435 \u043f\u043e\u044f\u0432\u0438\u0442\u0441\u044f \u0441\u0432\u0435\u0440\u043a\u0430\u044e\u0449\u0430\u044f \u0434\u044b\u0440\u0430 \u043d\u0430 \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0435 \u043f\u043e\u043b\u0435.\n\n"
@@ -1050,6 +1150,96 @@ public final class MainActivity extends Activity implements GameView.Listener {
                 .setMessage(text)
                 .setPositiveButton("\u041f\u043e\u043d\u044f\u0442\u043d\u043e", null)
                 .show();
+    }
+
+    private void showRichHelpDialog() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(dp(18), dp(16), dp(18), dp(16));
+        page.setBackgroundColor(Color.rgb(15, 26, 32));
+        scroll.addView(page);
+
+        TextView title = panelText("Справка");
+        title.setTextSize(24f);
+        title.setTypeface(null, 1);
+        title.setTextColor(Color.WHITE);
+        page.addView(title, new LinearLayout.LayoutParams(-1, dp(44)));
+
+        addHelpCard(page, "Цель", "Собрать все монеты и алмазы, не получив 5 уронов. На всех уровнях, кроме «Дебюта», нужно пройти 3 поля и въехать в сверкающую дыру после сбора богатства.");
+        addHelpCard(page, "Управление", "Коснись экрана и веди палец в сторону движения. Верни палец к центру жеста или отпусти, чтобы остановиться.");
+        addHelpHeader(page, "Богатство");
+        addHelpArtifact(page, "coin", "Монета", "+1 к богатству. С артефактом D даёт +2.");
+        addHelpArtifact(page, "diamond", "Алмаз", "+10 к богатству.");
+        addHelpArtifact(page, "bank", "Банк", "Появляется в стене, даёт богатство и банкноты, но вызывает дополнительную полицию.");
+        addHelpHeader(page, "Артефакты");
+        addHelpArtifact(page, "FREEZER", "Фризер", "Замораживает полицейские машинки на 20 секунд.");
+        addHelpArtifact(page, "SHIELD", "Защита", "На 20 секунд блокирует урон от полиции.");
+        addHelpArtifact(page, "GHOST", "Призрак", "На 7 секунд позволяет ехать сквозь стены.");
+        addHelpArtifact(page, "PORTAL", "Портал", "Меняет связь боковых дыр в стенах.");
+        addHelpArtifact(page, "medkit", "Аптечка", "Появляется при 3+ урона и лечит 1 урон.");
+        addHelpHeader(page, "ПРОФ");
+        addHelpArtifact(page, "KILLER", "K: Убийца", "30 секунд уничтожает полицейскую машинку при касании, даже во время мигания после урона.");
+        addHelpArtifact(page, "CHAOS", "C: Изменение мира", "20 секунд полиция убегает от преступников.");
+        addHelpArtifact(page, "DOUBLE", "D: Двойное богатство", "20 секунд монеты дают 2 богатства.");
+        addHelpArtifact(page, "ICE", "I: Лёд", "Берёт только полиция: машинка скользит до поворота.");
+
+        new AlertDialog.Builder(this)
+                .setView(scroll)
+                .setPositiveButton("Понятно", null)
+                .show();
+    }
+
+    private void addHelpHeader(LinearLayout page, String text) {
+        TextView header = panelText(text);
+        header.setTextSize(19f);
+        header.setTypeface(null, 1);
+        header.setTextColor(Color.rgb(120, 220, 255));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(38));
+        params.topMargin = dp(8);
+        page.addView(header, params);
+    }
+
+    private void addHelpCard(LinearLayout page, String title, String body) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
+        card.setBackground(glassBackground(Color.rgb(27, 43, 50), Color.rgb(55, 78, 88), dp(12), 1));
+        TextView heading = panelText(title);
+        heading.setTextSize(17f);
+        heading.setTypeface(null, 1);
+        TextView content = panelText(body);
+        content.setTextSize(15f);
+        content.setTextColor(Color.rgb(220, 232, 235));
+        card.addView(heading);
+        card.addView(content);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(10);
+        page.addView(card, params);
+    }
+
+    private void addHelpArtifact(LinearLayout page, String icon, String title, String body) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(8), dp(10), dp(8));
+        row.setBackground(glassBackground(Color.rgb(22, 37, 44), Color.rgb(47, 66, 74), dp(12), 1));
+        ArtifactHelpIconView iconView = new ArtifactHelpIconView(this, icon);
+        row.addView(iconView, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        LinearLayout text = new LinearLayout(this);
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.setPadding(dp(12), 0, 0, 0);
+        TextView heading = panelText(title);
+        heading.setTextSize(16f);
+        heading.setTypeface(null, 1);
+        TextView content = panelText(body);
+        content.setTextSize(14f);
+        content.setTextColor(Color.rgb(216, 229, 232));
+        text.addView(heading);
+        text.addView(content);
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(8);
+        page.addView(row, params);
     }
 
     private void saveWin(GameResult result) {
@@ -1677,33 +1867,32 @@ public final class MainActivity extends Activity implements GameView.Listener {
     }
 
     private static final class AvatarView extends View {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final int[] values = new int[10];
+        private int[] values;
 
-        AvatarView(Activity activity, String encoded) {
+        AvatarView(Activity activity, int[] values) {
             super(activity);
-            String[] parts = encoded == null ? new String[0] : encoded.split(",");
-            for (int i = 0; i < values.length && i < parts.length; i++) {
-                try {
-                    values[i] = Integer.parseInt(parts[i]);
-                } catch (NumberFormatException ignored) {
-                    values[i] = 0;
-                }
-            }
+            setValues(values);
         }
 
-        void bump(int index) {
-            values[index] = (values[index] + 1) % 4;
+        void setValues(int[] values) {
+            this.values = values == null ? new int[AvatarRenderer.CATEGORY_COUNT] : Arrays.copyOf(values, AvatarRenderer.CATEGORY_COUNT);
             invalidate();
         }
 
-        String encoded() {
-            StringBuilder out = new StringBuilder();
-            for (int i = 0; i < values.length; i++) {
-                if (i > 0) out.append(",");
-                out.append(values[i]);
-            }
-            return out.toString();
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            AvatarRenderer.draw(canvas, values, 0f, 0f, getWidth(), getHeight(), true);
+        }
+    }
+
+    private static final class ArtifactHelpIconView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final String icon;
+
+        ArtifactHelpIconView(Activity activity, String icon) {
+            super(activity);
+            this.icon = icon;
         }
 
         @Override
@@ -1712,24 +1901,99 @@ public final class MainActivity extends Activity implements GameView.Listener {
             float w = getWidth();
             float h = getHeight();
             float cx = w / 2f;
-            int skin = new int[]{Color.rgb(232, 180, 132), Color.rgb(186, 126, 82), Color.rgb(246, 206, 158), Color.rgb(132, 82, 55)}[values[9]];
+            float cy = h / 2f;
+            float r = Math.min(w, h) * 0.36f;
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.rgb(28, 36, 54));
-            canvas.drawRoundRect(new RectF(cx - h * 0.42f, h * 0.08f, cx + h * 0.42f, h * 0.96f), h * 0.08f, h * 0.08f, paint);
-            paint.setColor(skin);
-            canvas.drawRect(cx - h * 0.09f, h * 0.62f, cx + h * 0.09f, h * 0.82f, paint);
-            canvas.drawOval(cx - h * 0.2f, h * 0.72f, cx + h * 0.2f, h * 1.04f, paint);
-            canvas.drawOval(cx - h * 0.28f, h * 0.18f, cx + h * 0.28f, h * 0.72f, paint);
-            paint.setColor(new int[]{Color.rgb(48, 30, 20), Color.rgb(225, 185, 82), Color.rgb(30, 30, 36), Color.rgb(145, 68, 42)}[values[2]]);
-            canvas.drawArc(new RectF(cx - h * 0.3f, h * 0.12f, cx + h * 0.3f, h * 0.48f), 180, 180, true, paint);
+            if ("coin".equals(icon)) {
+                paint.setColor(Color.rgb(245, 200, 75));
+                canvas.drawCircle(cx, cy, r, paint);
+                paint.setColor(Color.rgb(255, 240, 168));
+                canvas.drawCircle(cx, cy, r * 0.45f, paint);
+                return;
+            }
+            if ("diamond".equals(icon)) {
+                Path path = new Path();
+                path.moveTo(cx, cy - r);
+                path.lineTo(cx + r * 0.78f, cy);
+                path.lineTo(cx, cy + r);
+                path.lineTo(cx - r * 0.78f, cy);
+                path.close();
+                paint.setColor(Color.rgb(119, 236, 255));
+                canvas.drawPath(path, paint);
+                return;
+            }
+            if ("medkit".equals(icon)) {
+                paint.setColor(Color.WHITE);
+                canvas.drawRoundRect(new RectF(cx - r, cy - r * 0.7f, cx + r, cy + r * 0.75f), r * 0.22f, r * 0.22f, paint);
+                paint.setColor(Color.rgb(230, 68, 72));
+                canvas.drawRect(cx - r * 0.18f, cy - r * 0.48f, cx + r * 0.18f, cy + r * 0.52f, paint);
+                canvas.drawRect(cx - r * 0.55f, cy - r * 0.12f, cx + r * 0.55f, cy + r * 0.2f, paint);
+                return;
+            }
+            if ("bank".equals(icon)) {
+                paint.setColor(Color.rgb(58, 174, 92));
+                canvas.drawRoundRect(new RectF(cx - r, cy - r * 0.5f, cx + r, cy + r * 0.75f), r * 0.12f, r * 0.12f, paint);
+                paint.setColor(Color.rgb(210, 255, 220));
+                canvas.drawRect(cx - r * 0.7f, cy - r * 0.15f, cx + r * 0.7f, cy + r * 0.02f, paint);
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setFakeBoldText(true);
+                paint.setTextSize(r * 0.72f);
+                canvas.drawText("Б", cx, cy + r * 0.48f, paint);
+                paint.setFakeBoldText(false);
+                return;
+            }
+            String label = "FREEZER".equals(icon) ? "F" : "SHIELD".equals(icon) ? "S" : "GHOST".equals(icon) ? "G"
+                    : "PORTAL".equals(icon) ? "P" : "KILLER".equals(icon) ? "K" : "CHAOS".equals(icon) ? "C"
+                    : "DOUBLE".equals(icon) ? "D" : "I";
+            int color = "FREEZER".equals(icon) ? Color.rgb(70, 210, 255) : "SHIELD".equals(icon) ? Color.rgb(77, 230, 116)
+                    : "GHOST".equals(icon) ? Color.rgb(185, 125, 255) : "PORTAL".equals(icon) ? Color.rgb(255, 174, 78)
+                    : "KILLER".equals(icon) ? Color.rgb(245, 70, 76) : "CHAOS".equals(icon) ? Color.rgb(255, 178, 62)
+                    : "DOUBLE".equals(icon) ? Color.rgb(72, 225, 116) : Color.rgb(150, 230, 255);
+            paint.setColor(color);
+            canvas.drawCircle(cx, cy, r, paint);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setFakeBoldText(true);
+            paint.setTextSize(r * 1.05f);
             paint.setColor(Color.WHITE);
-            canvas.drawOval(cx - h * 0.16f, h * 0.42f, cx - h * 0.04f, h * 0.49f, paint);
-            canvas.drawOval(cx + h * 0.04f, h * 0.42f, cx + h * 0.16f, h * 0.49f, paint);
-            paint.setColor(new int[]{Color.rgb(70, 120, 210), Color.rgb(68, 145, 75), Color.rgb(96, 60, 38), Color.rgb(35, 35, 42)}[values[5]]);
-            canvas.drawCircle(cx - h * 0.1f, h * 0.455f, h * 0.025f, paint);
-            canvas.drawCircle(cx + h * 0.1f, h * 0.455f, h * 0.025f, paint);
-            paint.setColor(Color.rgb(130, 70, 60));
-            canvas.drawArc(new RectF(cx - h * 0.1f, h * 0.55f, cx + h * 0.1f, h * 0.65f), 15, 150, false, paint);
+            canvas.drawText(label, cx, cy + r * 0.36f, paint);
+            paint.setFakeBoldText(false);
+        }
+    }
+
+    private static final class AvatarOptionView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int[] values;
+        private final int category;
+        private final int option;
+        private boolean chosen;
+
+        AvatarOptionView(Activity activity, int[] baseValues, int category, int option) {
+            super(activity);
+            this.values = Arrays.copyOf(baseValues, AvatarRenderer.CATEGORY_COUNT);
+            this.category = category;
+            this.option = option;
+            this.values[category] = option;
+        }
+
+        void setChosen(boolean chosen) {
+            this.chosen = chosen;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float w = getWidth();
+            float h = getHeight();
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Color.rgb(14, 32, 38));
+            canvas.drawRoundRect(new RectF(6f, 6f, w - 6f, h - 6f), 18f, 18f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(chosen ? 5f : 3f);
+            paint.setColor(chosen ? Color.rgb(76, 195, 240) : Color.rgb(52, 72, 80));
+            canvas.drawRoundRect(new RectF(6f, 6f, w - 6f, h - 6f), 18f, 18f, paint);
+            float size = Math.min(w * 0.82f, h * 0.9f);
+            AvatarRenderer.draw(canvas, values, (w - size) / 2f, (h - size) / 2f, size, false);
         }
     }
 

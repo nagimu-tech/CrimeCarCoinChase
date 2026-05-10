@@ -412,8 +412,10 @@ final class OnlineGameView extends View {
         canvas.drawRect(0f, 0f, getWidth(), h, paint);
 
         float size = 44f * density;
-        float right = getWidth() - 10f * density;
-        menuRect.set(right - size, 8f * density, right, 8f * density + size);
+        float visual = 34f * density;
+        float right = getWidth() - 8f * density;
+        menuRect.set(right - size, 2f * density, right, 2f * density + size);
+        RectF menuVisual = new RectF(menuRect.centerX() - visual / 2f, menuRect.top + 2f * density, menuRect.centerX() + visual / 2f, menuRect.top + 2f * density + visual);
 
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setFakeBoldText(true);
@@ -443,13 +445,13 @@ final class OnlineGameView extends View {
 
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.argb(150, 0, 0, 0));
-        canvas.drawRoundRect(menuRect, 16f * density, 16f * density, paint);
+        canvas.drawRoundRect(menuVisual, 13f * density, 13f * density, paint);
         paint.setColor(Color.WHITE);
-        paint.setStrokeWidth(4f * density);
-        float cx = menuRect.centerX();
-        float top = menuRect.top + 13f * density;
+        paint.setStrokeWidth(3.2f * density);
+        float cx = menuVisual.centerX();
+        float top = menuVisual.top + 10f * density;
         for (int i = 0; i < 3; i++) {
-            canvas.drawLine(cx - 13f * density, top + i * 10f * density, cx + 13f * density, top + i * 10f * density, paint);
+            canvas.drawLine(cx - 10f * density, top + i * 7f * density, cx + 10f * density, top + i * 7f * density, paint);
         }
         paint.setFakeBoldText(false);
     }
@@ -930,6 +932,11 @@ final class OnlineGameView extends View {
         float step = 17f * density;
         float y = 16f * density;
         float left = 12f * density;
+        RemoteCar me = me();
+        if (me != null && me.avatar != null && !me.avatar.isEmpty()) {
+            AvatarRenderer.draw(canvas, me.avatar, left - size * 0.1f, y - size * 0.75f, size * 1.35f, true);
+            left += size * 1.55f;
+        }
         float notchHalf = Math.min(58f * density, getWidth() * 0.18f);
         float center = getWidth() / 2f;
         float rightLimit = menuRect.left - 10f * density;
