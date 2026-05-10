@@ -404,6 +404,7 @@ function updateRoom(room, delta, now) {
     collect(room, player);
     checkExitPortal(room, player, now);
   }
+  updateDecoys(room, delta, now);
   for (const police of room.police) {
     updatePolice(room, police, delta, now);
   }
@@ -487,6 +488,62 @@ function updatePlayer(room, player, delta, now) {
     player.dir = player.nextDir;
   }
   move(room, player, playerSpeed(player, now), delta);
+}
+
+function updateDecoys(room, delta, now) {
+  for (const player of room.players) {
+    if (now >= (player.decoyUntil || 0)) {
+      player.decoyDir = "NONE";
+      continue;
+    }
+    const decoy = {
+      x: player.decoyX || player.x,
+      y: player.decoyY || player.y,
+      dir: player.decoyDir || "NONE",
+      angle: player.decoyAngle || 0,
+    };
+    recoverIfInWall(room, decoy);
+    if (atCenter(decoy)) {
+      decoy.x = centerCoordinate(decoy.x);
+      decoy.y = centerCoordinate(decoy.y);
+      decoy.dir = chooseDecoyDirection(room, decoy) || "NONE";
+    }
+    move(room, decoy, playerSpeed(player, now) * 0.78, delta);
+    player.decoyX = decoy.x;
+    player.decoyY = decoy.y;
+    player.decoyDir = decoy.dir;
+    player.decoyAngle = decoy.angle || 0;
+  }
+}
+
+function chooseDecoyDirection(room, actor) {
+  let options = ["UP", "DOWN", "LEFT", "RIGHT"].filter((dir) => canMove(room.grid, actor, dir));
+  if (options.length === 0) return null;
+  const reverseDir = reverse(actor.dir);
+  if (options.length > 1) {
+    options = options.filter((dir) => dir !== reverseDir);
+  }
+  options.sort((a, b) => {
+    const scoreA = decoyDirectionScore(room, actor, a);
+    const scoreB = decoyDirectionScore(room, actor, b);
+    return scoreB - scoreA;
+  });
+  return options[0];
+}
+
+function decoyDirectionScore(room, actor, dir) {
+  const d = vector(dir);
+  const x = actor.x + d.dx;
+  const y = actor.y + d.dy;
+  let nearestPolice = 99;
+  for (const police of room.police) {
+    nearestPolice = Math.min(nearestPolice, Math.abs(police.x - x) + Math.abs(police.y - y));
+  }
+  let nearestPlayer = 99;
+  for (const player of room.players) {
+    nearestPlayer = Math.min(nearestPlayer, Math.abs(player.x - x) + Math.abs(player.y - y));
+  }
+  return nearestPolice * 8 + nearestPlayer * 3 + Math.random() * 4;
 }
 
 function updatePolice(room, police, delta, now) {
@@ -662,6 +719,8 @@ function applyArtifact(room, player, artifact) {
     player.decoyUntil = Math.max(player.decoyUntil || 0, Date.now()) + DECOY_MS;
     player.decoyX = Math.round(player.x - 0.5) + 0.5;
     player.decoyY = Math.round(player.y - 0.5) + 0.5;
+    player.decoyDir = chooseDecoyDirection(room, { x: player.decoyX, y: player.decoyY, dir: player.dir || "NONE" }) || "NONE";
+    player.decoyAngle = player.angle || 0;
     return;
   }
   if (artifact.type === "TURBO") {
@@ -721,7 +780,7 @@ function spawnRandomArtifact(room, now) {
 
 function spawnProfArtifact(room, now) {
   const target = room.players[Math.floor(Math.random() * room.players.length)];
-  const types = ["KILLER", "CHAOS", "DOUBLE", "ICE", "DECOY", "TURBO"];
+  const types = ["KILLER", "CHAOS", "DOUBLE", "ICE", "DECOY", "DECOY", "DECOY", "TURBO"];
   const type = types[Math.floor(Math.random() * types.length)];
   const candidates = type === "ICE" ? emptyArtifactCandidates(room, target) : artifactCandidates(room, target, true);
   if (candidates.length === 0) return;
@@ -878,6 +937,8 @@ function beginNextStage(room, now) {
     player.decoyUntil = 0;
     player.decoyX = 0;
     player.decoyY = 0;
+    player.decoyDir = "NONE";
+    player.decoyAngle = 0;
     player.turboUntil = 0;
     player.invulnerableUntil = 0;
   }
@@ -1017,6 +1078,15 @@ function vector(dir) {
   }[dir] || null;
 }
 
+function reverse(dir) {
+  return {
+    UP: "DOWN",
+    DOWN: "UP",
+    LEFT: "RIGHT",
+    RIGHT: "LEFT",
+  }[dir] || "NONE";
+}
+
 function normalizeDirection(direction) {
   return ["UP", "DOWN", "LEFT", "RIGHT", "NONE"].includes(direction) ? direction : "NONE";
 }
@@ -1129,7 +1199,7 @@ function countWealth(grid) {
 }
 
 function car(id, x, y, dir) {
-  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, score: 0, bonusTotal: 0, banknotes: 0, invulnerableUntil: 0, shieldUntil: 0, ghostUntil: 0, killerUntil: 0, doubleUntil: 0, decoyUntil: 0, decoyX: 0, decoyY: 0, turboUntil: 0, iceUntil: 0, avatar: "" };
+  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, score: 0, bonusTotal: 0, banknotes: 0, invulnerableUntil: 0, shieldUntil: 0, ghostUntil: 0, killerUntil: 0, doubleUntil: 0, decoyUntil: 0, decoyX: 0, decoyY: 0, decoyDir: "NONE", decoyAngle: 0, turboUntil: 0, iceUntil: 0, avatar: "" };
 }
 
 function mapSize(difficulty) {
@@ -1228,8 +1298,10 @@ function serializeRoom(room, playerId) {
     decoys: room.players
       .filter((player) => Date.now() < (player.decoyUntil || 0))
       .map((player) => ({
-        x: Math.round((player.decoyX || player.x) - 0.5),
-        y: Math.round((player.decoyY || player.y) - 0.5),
+        id: 1000 + player.id,
+        x: player.decoyX || player.x,
+        y: player.decoyY || player.y,
+        angle: player.decoyAngle || 0,
       })),
     banknoteEventId: room.banknoteEventId,
     banknoteReward: 0,

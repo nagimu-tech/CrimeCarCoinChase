@@ -470,11 +470,12 @@ public final class MainActivity extends Activity implements GameView.Listener {
     }
 
     private void showAvatarEditorDialog() {
-        int[] values = AvatarRenderer.decode(prefs.getString(GameConfig.PREF_AVATAR, "0,0,0,0,0,0,0,0,0,0"));
+        String savedAvatar = prefs.getString(GameConfig.PREF_AVATAR, "0,0,0,0,0,0,0,0,0,0");
+        int[] values = AvatarRenderer.decode(savedAvatar);
+        int[] colorValues = AvatarRenderer.decodeColors(savedAvatar);
         int[] selected = {0};
         DisplayMetrics metrics = getResources().getDisplayMetrics();
         int dialogWidth = Math.min(metrics.widthPixels - dp(32), dp(540));
-        int optionWidth = Math.max(dp(116), (dialogWidth - dp(66)) / 2);
         LinearLayout rootPanel = new LinearLayout(this);
         rootPanel.setOrientation(LinearLayout.VERTICAL);
         rootPanel.setBackgroundColor(Color.rgb(12, 28, 32));
@@ -500,7 +501,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         header.addView(done, new LinearLayout.LayoutParams(dp(96), dp(52)));
         rootPanel.addView(header);
 
-        AvatarView preview = new AvatarView(this, values);
+        AvatarView preview = new AvatarView(this, values, colorValues);
         rootPanel.addView(preview, new LinearLayout.LayoutParams(-1, dp(250)));
 
         HorizontalScrollView tabsScroll = new HorizontalScrollView(this);
@@ -519,8 +520,8 @@ public final class MainActivity extends Activity implements GameView.Listener {
         optionsScroll.addView(optionsPanel);
         rootPanel.addView(optionsScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        String[] tabIcons = {"♟", "◡", "〰", "☻", "◉", "●", "▢", "◌", "○", "▣"};
-        String[] sectionTitles = {"Форма головы", "Тело", "Причёска", "Рот", "Выражение лица", "Цвет глаз", "Очки", "Тип лица", "Серьги", "Цвет кожи"};
+        String[] tabIcons = {"♟", "▾", "◡", "〰", "☻", "◉", "●", "▢", "◌", "○", "▣"};
+        String[] sectionTitles = {"Форма головы", "Форма подбородка", "Тело", "Причёска", "Рот", "Выражение лица", "Глаза", "Очки", "Тип лица", "Серьги", "Цвет кожи"};
         Runnable[] rebuild = new Runnable[1];
         rebuild[0] = () -> {
             tabs.removeAllViews();
@@ -542,28 +543,68 @@ public final class MainActivity extends Activity implements GameView.Listener {
             section.setTypeface(null, 1);
             section.setTextColor(Color.WHITE);
             optionsPanel.addView(section, new LinearLayout.LayoutParams(-1, dp(44)));
-            GridLayout grid = new GridLayout(this);
-            grid.setColumnCount(2);
-            int count = AvatarRenderer.OPTION_COUNTS[selected[0]];
-            for (int option = 0; option < count; option++) {
-                final int value = option;
-                AvatarOptionView optionView = new AvatarOptionView(this, values, selected[0], value);
-                optionView.setChosen(value == values[selected[0]]);
-                optionView.setOnClickListener(v -> {
-                    values[selected[0]] = value;
-                    preview.setValues(values);
-                    String encoded = AvatarRenderer.encode(values);
+
+            HorizontalScrollView colorScroll = new HorizontalScrollView(this);
+            colorScroll.setHorizontalScrollBarEnabled(false);
+            LinearLayout swatches = new LinearLayout(this);
+            swatches.setPadding(0, 0, dp(10), 0);
+            colorScroll.addView(swatches, new HorizontalScrollView.LayoutParams(-2, dp(52)));
+            int colorCount = AvatarRenderer.colorCount(selected[0]);
+            for (int colorOption = 0; colorOption < colorCount; colorOption++) {
+                final int value = colorOption;
+                TextView swatch = new TextView(this);
+                GradientDrawable bg = new GradientDrawable();
+                bg.setShape(GradientDrawable.RECTANGLE);
+                bg.setCornerRadius(dp(12));
+                bg.setColor(AvatarRenderer.colorFor(selected[0], value));
+                bg.setStroke(dp(value == colorValues[selected[0]] ? 3 : 2), value == colorValues[selected[0]] ? Color.rgb(76, 195, 240) : Color.rgb(52, 72, 80));
+                swatch.setBackground(bg);
+                swatch.setOnClickListener(v -> {
+                    colorValues[selected[0]] = value;
+                    preview.setValues(values, colorValues);
+                    String encoded = AvatarRenderer.encode(values, colorValues);
                     prefs.edit().putString(GameConfig.PREF_AVATAR, encoded).apply();
                     gameView.setAvatar(encoded);
                     rebuild[0].run();
                 });
-                GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-                lp.width = optionWidth;
-                lp.height = dp(126);
-                lp.setMargins(dp(5), dp(6), dp(5), dp(10));
-                grid.addView(optionView, lp);
+                LinearLayout.LayoutParams swatchLp = new LinearLayout.LayoutParams(dp(42), dp(42));
+                swatchLp.setMargins(0, dp(3), dp(10), dp(7));
+                swatches.addView(swatch, swatchLp);
             }
-            optionsPanel.addView(grid);
+            optionsPanel.addView(colorScroll, new LinearLayout.LayoutParams(-1, dp(52)));
+
+            LinearLayout rows = new LinearLayout(this);
+            rows.setOrientation(LinearLayout.VERTICAL);
+            int count = AvatarRenderer.OPTION_COUNTS[selected[0]];
+            for (int option = 0; option < count; option += 2) {
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setClipToPadding(false);
+                for (int column = 0; column < 2; column++) {
+                    int optionIndex = option + column;
+                    if (optionIndex >= count) {
+                        View spacer = new View(this);
+                        row.addView(spacer, new LinearLayout.LayoutParams(0, dp(126), 1f));
+                        continue;
+                    }
+                    final int value = optionIndex;
+                    AvatarOptionView optionView = new AvatarOptionView(this, values, colorValues, selected[0], value);
+                    optionView.setChosen(value == values[selected[0]]);
+                    optionView.setOnClickListener(v -> {
+                        values[selected[0]] = value;
+                        preview.setValues(values, colorValues);
+                        String encoded = AvatarRenderer.encode(values, colorValues);
+                        prefs.edit().putString(GameConfig.PREF_AVATAR, encoded).apply();
+                        gameView.setAvatar(encoded);
+                        rebuild[0].run();
+                    });
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(126), 1f);
+                    lp.setMargins(dp(5), dp(6), dp(5), dp(12));
+                    row.addView(optionView, lp);
+                }
+                rows.addView(row, new LinearLayout.LayoutParams(-1, dp(144)));
+            }
+            optionsPanel.addView(rows, new LinearLayout.LayoutParams(-1, -2));
         };
         rebuild[0].run();
 
@@ -1880,21 +1921,23 @@ public final class MainActivity extends Activity implements GameView.Listener {
 
     private static final class AvatarView extends View {
         private int[] values;
+        private int[] colors;
 
-        AvatarView(Activity activity, int[] values) {
+        AvatarView(Activity activity, int[] values, int[] colors) {
             super(activity);
-            setValues(values);
+            setValues(values, colors);
         }
 
-        void setValues(int[] values) {
+        void setValues(int[] values, int[] colors) {
             this.values = values == null ? new int[AvatarRenderer.CATEGORY_COUNT] : Arrays.copyOf(values, AvatarRenderer.CATEGORY_COUNT);
+            this.colors = colors == null ? new int[AvatarRenderer.CATEGORY_COUNT] : Arrays.copyOf(colors, AvatarRenderer.CATEGORY_COUNT);
             invalidate();
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            AvatarRenderer.draw(canvas, values, 0f, 0f, getWidth(), getHeight(), true);
+            AvatarRenderer.draw(canvas, values, colors, 0f, 0f, getWidth(), getHeight(), true);
         }
     }
 
@@ -1976,13 +2019,15 @@ public final class MainActivity extends Activity implements GameView.Listener {
     private static final class AvatarOptionView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final int[] values;
+        private final int[] colors;
         private final int category;
         private final int option;
         private boolean chosen;
 
-        AvatarOptionView(Activity activity, int[] baseValues, int category, int option) {
+        AvatarOptionView(Activity activity, int[] baseValues, int[] baseColors, int category, int option) {
             super(activity);
             this.values = Arrays.copyOf(baseValues, AvatarRenderer.CATEGORY_COUNT);
+            this.colors = Arrays.copyOf(baseColors, AvatarRenderer.CATEGORY_COUNT);
             this.category = category;
             this.option = option;
             this.values[category] = option;
@@ -2006,7 +2051,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
             paint.setColor(chosen ? Color.rgb(76, 195, 240) : Color.rgb(52, 72, 80));
             canvas.drawRoundRect(new RectF(6f, 6f, w - 6f, h - 6f), 18f, 18f, paint);
             float size = Math.min(w * 0.82f, h * 0.9f);
-            AvatarRenderer.draw(canvas, values, (w - size) / 2f, (h - size) / 2f, size, false);
+            AvatarRenderer.draw(canvas, values, colors, (w - size) / 2f, (h - size) / 2f, size, false);
         }
     }
 

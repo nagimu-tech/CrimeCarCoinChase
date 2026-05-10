@@ -13,6 +13,7 @@ import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.View;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -409,6 +410,7 @@ final class GameView extends View {
         updateAiAlly(delta);
         collectItem();
         checkExitPortal();
+        updateDecoy(delta, now);
         updatePolice(delta, now);
         checkHits(now);
     }
@@ -427,6 +429,78 @@ final class GameView extends View {
 
     private void chooseAiDirection() {
         Cell ally = toCell(allyPlayer);
+        if (nearestPoliceDistance(ally) <= 3) {
+            Direction escape = chooseAiEscapeDirection(ally);
+            allyPlayer.dir = escape;
+            allyPlayer.nextDir = escape;
+            return;
+        }
+
+        Direction best = findAiPathDirection(ally);
+        if (best == Direction.NONE) {
+            best = chooseAiEscapeDirection(ally);
+        }
+        allyPlayer.dir = best;
+        allyPlayer.nextDir = best;
+    }
+
+    private Direction findAiPathDirection(Cell start) {
+        boolean[][] visited = new boolean[mapHeight][mapWidth];
+        int[][] dist = new int[mapHeight][mapWidth];
+        Direction[][] first = new Direction[mapHeight][mapWidth];
+        ArrayDeque<Cell> queue = new ArrayDeque<>();
+        visited[start.y][start.x] = true;
+        queue.add(start);
+
+        Direction bestDirection = Direction.NONE;
+        int bestScore = Integer.MIN_VALUE;
+        while (!queue.isEmpty()) {
+            Cell cell = queue.removeFirst();
+            int targetScore = aiTargetScore(cell, dist[cell.y][cell.x]);
+            if (targetScore > bestScore) {
+                bestScore = targetScore;
+                bestDirection = first[cell.y][cell.x] == null ? Direction.NONE : first[cell.y][cell.x];
+            }
+            for (Direction direction : new Direction[]{Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT}) {
+                int nx = cell.x + direction.dx;
+                int ny = cell.y + direction.dy;
+                if (!inside(nx, ny) || visited[ny][nx] || grid[ny][nx] == WALL) {
+                    continue;
+                }
+                Cell next = new Cell(nx, ny);
+                if (nearestPoliceDistance(next) <= 1) {
+                    continue;
+                }
+                visited[ny][nx] = true;
+                dist[ny][nx] = dist[cell.y][cell.x] + 1;
+                first[ny][nx] = first[cell.y][cell.x] == null ? direction : first[cell.y][cell.x];
+                queue.add(next);
+            }
+        }
+        return bestScore > Integer.MIN_VALUE / 2 ? bestDirection : Direction.NONE;
+    }
+
+    private int aiTargetScore(Cell cell, int distance) {
+        int item = grid[cell.y][cell.x];
+        int value = 0;
+        if (item == DIAMOND) {
+            value = 260;
+        } else if (item == COIN) {
+            value = 80;
+        }
+        for (ArtifactDrop drop : activeArtifacts) {
+            if (drop.cell.equals(cell) && usefulForAi(drop.artifact)) {
+                value = Math.max(value, drop.artifact == Artifact.MEDKIT ? 90 : 150);
+            }
+        }
+        if (value == 0) {
+            return Integer.MIN_VALUE / 3;
+        }
+        int safety = Math.min(8, nearestPoliceDistance(cell)) * 15;
+        return value + safety - distance * 9 + random.nextInt(4);
+    }
+
+    private Direction chooseAiEscapeDirection(Cell ally) {
         Direction best = Direction.NONE;
         int bestScore = Integer.MIN_VALUE;
         for (Direction direction : new Direction[]{Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT}) {
@@ -434,16 +508,13 @@ final class GameView extends View {
                 continue;
             }
             Cell next = new Cell(ally.x + direction.dx, ally.y + direction.dy);
-            int policePenalty = nearestPoliceDistance(next) < 4 ? -200 : 0;
-            int itemBonus = nearestCollectibleScore(next);
-            int score = policePenalty + itemBonus + random.nextInt(8);
+            int score = nearestPoliceDistance(next) * 40 + nearestCollectibleScore(next) + random.nextInt(8);
             if (score > bestScore) {
                 bestScore = score;
                 best = direction;
             }
         }
-        allyPlayer.dir = best;
-        allyPlayer.nextDir = best;
+        return best;
     }
 
     private int nearestPoliceDistance(Cell cell) {
@@ -466,6 +537,56 @@ final class GameView extends View {
             }
         }
         return best;
+    }
+
+    private void updateDecoy(float delta, long now) {
+        if (!profEnabled || decoyCar == null || now >= decoyUntil) {
+            decoyCar = null;
+            return;
+        }
+        if (atCenter(decoyCar)) {
+            snap(decoyCar);
+            Direction direction = chooseDecoyDirection(decoyCar);
+            decoyCar.dir = direction;
+            decoyCar.nextDir = direction;
+        }
+        move(decoyCar, PLAYER_SPEED * 0.86f, delta);
+    }
+
+    private Direction chooseDecoyDirection(Car car) {
+        ArrayList<Direction> options = new ArrayList<>();
+        Direction reverse = reverse(car.dir);
+        for (Direction direction : new Direction[]{Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT}) {
+            if (canMove(car, direction)) {
+                options.add(direction);
+            }
+        }
+        if (options.isEmpty()) {
+            return Direction.NONE;
+        }
+        if (options.size() > 1) {
+            options.remove(reverse);
+        }
+        Direction best = Direction.NONE;
+        int bestScore = Integer.MIN_VALUE;
+        Cell current = toCell(car);
+        for (Direction direction : options) {
+            Cell next = new Cell(current.x + direction.dx, current.y + direction.dy);
+            int score = nearestPoliceDistance(next) * 12 + distance(next, toCell(player)) * 3 + random.nextInt(20);
+            if (score > bestScore) {
+                bestScore = score;
+                best = direction;
+            }
+        }
+        return best;
+    }
+
+    private Direction reverse(Direction direction) {
+        if (direction == Direction.UP) return Direction.DOWN;
+        if (direction == Direction.DOWN) return Direction.UP;
+        if (direction == Direction.LEFT) return Direction.RIGHT;
+        if (direction == Direction.RIGHT) return Direction.LEFT;
+        return Direction.NONE;
     }
 
     private void updateArtifact(long now) {
@@ -519,7 +640,7 @@ final class GameView extends View {
     }
 
     private void spawnProfArtifact(long now) {
-        Artifact[] types = new Artifact[]{Artifact.KILLER, Artifact.CHAOS, Artifact.DOUBLE, Artifact.ICE, Artifact.DECOY, Artifact.TURBO};
+        Artifact[] types = new Artifact[]{Artifact.KILLER, Artifact.CHAOS, Artifact.DOUBLE, Artifact.ICE, Artifact.DECOY, Artifact.DECOY, Artifact.DECOY, Artifact.TURBO};
         Artifact artifact = types[random.nextInt(types.length)];
         ArrayList<Cell> candidates = artifact == Artifact.ICE ? emptyArtifactCandidates() : artifactCandidates(true);
         if (!candidates.isEmpty()) {
@@ -984,6 +1105,9 @@ final class GameView extends View {
                 } else if (drop.artifact != Artifact.ICE && mainPlayer) {
                     applyArtifact(drop.artifact, SystemClock.uptimeMillis());
                     activeArtifacts.remove(i);
+                } else if (!mainPlayer && usefulForAi(drop.artifact)) {
+                    applyAllyArtifact(drop.artifact, SystemClock.uptimeMillis());
+                    activeArtifacts.remove(i);
                 }
             }
         }
@@ -1034,6 +1158,26 @@ final class GameView extends View {
         return Math.hypot(car.x - (cell.x + 0.5f), car.y - (cell.y + 0.5f)) <= radius;
     }
 
+    private boolean usefulForAi(Artifact artifact) {
+        return artifact == Artifact.FREEZER || artifact == Artifact.CHAOS || artifact == Artifact.DOUBLE || artifact == Artifact.DECOY;
+    }
+
+    private void applyAllyArtifact(Artifact artifact, long now) {
+        if (artifact == Artifact.FREEZER) {
+            freezeUntil = extendTimer(freezeUntil, now, FREEZE_MS);
+        } else if (artifact == Artifact.CHAOS) {
+            chaosUntil = extendTimer(chaosUntil, now, 20000L);
+        } else if (artifact == Artifact.DOUBLE) {
+            doubleUntil = extendTimer(doubleUntil, now, 20000L);
+        } else if (artifact == Artifact.DECOY) {
+            decoyUntil = extendTimer(decoyUntil, now, DECOY_MS);
+            decoyCar = new Car(toCell(allyPlayer));
+            decoyCar.angle = allyPlayer.angle;
+            decoyCar.dir = chooseDecoyDirection(decoyCar);
+            decoyCar.nextDir = decoyCar.dir;
+        }
+    }
+
     private void applyArtifact(Artifact artifact, long now) {
         if (artifact == Artifact.FREEZER) {
             freezeUntil = extendTimer(freezeUntil, now, FREEZE_MS);
@@ -1054,6 +1198,8 @@ final class GameView extends View {
             decoyUntil = extendTimer(decoyUntil, now, DECOY_MS);
             decoyCar = new Car(toCell(player));
             decoyCar.angle = player.angle;
+            decoyCar.dir = chooseDecoyDirection(decoyCar);
+            decoyCar.nextDir = decoyCar.dir;
         } else if (artifact == Artifact.TURBO) {
             turboUntil = extendTimer(turboUntil, now, TURBO_MS);
         } else if (artifact == Artifact.MEDKIT) {
@@ -1846,6 +1992,10 @@ final class GameView extends View {
 
     private Cell toCell(Car car) {
         return new Cell(Math.round(car.x - 0.5f), Math.round(car.y - 0.5f));
+    }
+
+    private boolean inside(int x, int y) {
+        return x >= 0 && y >= 0 && x < mapWidth && y < mapHeight;
     }
 
     private int distance(Cell a, Cell b) {

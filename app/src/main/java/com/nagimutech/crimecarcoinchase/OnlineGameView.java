@@ -38,7 +38,7 @@ final class OnlineGameView extends View {
     private final float density;
     private final List<RemoteCar> players = new ArrayList<>();
     private final List<RemoteCar> police = new ArrayList<>();
-    private final List<RemoteArtifact> decoys = new ArrayList<>();
+    private final List<RemoteCar> decoys = new ArrayList<>();
     private final List<RemoteArtifact> artifacts = new ArrayList<>();
     private final Map<String, Bitmap> bitmapIcons = new HashMap<>();
     private RectF menuRect = new RectF();
@@ -161,10 +161,9 @@ final class OnlineGameView extends View {
 
         updateCars(state.optJSONArray("players"), players);
         updateCars(state.optJSONArray("police"), police);
+        updateCars(state.optJSONArray("decoys"), decoys);
         artifacts.clear();
         readArtifacts(state.optJSONArray("artifacts"));
-        decoys.clear();
-        readDecoys(state.optJSONArray("decoys"));
         invalidate();
     }
 
@@ -251,22 +250,6 @@ final class OnlineGameView extends View {
         }
     }
 
-    private void readDecoys(JSONArray array) {
-        if (array == null) {
-            return;
-        }
-        for (int i = 0; i < array.length(); i++) {
-            JSONObject item = array.optJSONObject(i);
-            if (item != null) {
-                RemoteArtifact decoy = new RemoteArtifact();
-                decoy.type = "DECOY";
-                decoy.x = item.optInt("x", 0);
-                decoy.y = item.optInt("y", 0);
-                decoys.add(decoy);
-            }
-        }
-    }
-
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
@@ -289,10 +272,13 @@ final class OnlineGameView extends View {
         for (RemoteCar car : police) {
             advanceCar(car);
         }
+        for (RemoteCar car : decoys) {
+            advanceCar(car);
+        }
     }
 
     private void advanceCar(RemoteCar car) {
-        float factor = 0.62f;
+        float factor = 0.42f;
         car.x += (car.targetX - car.x) * factor;
         car.y += (car.targetY - car.y) * factor;
         float diff = normalizeAngle(car.targetAngle - car.angle);
@@ -414,11 +400,7 @@ final class OnlineGameView extends View {
         for (RemoteCar car : police) {
             drawCar(canvas, car, colors.police, Color.rgb(201, 223, 255), tile, originX, originY, false);
         }
-        for (RemoteArtifact decoy : decoys) {
-            RemoteCar fake = new RemoteCar();
-            fake.x = decoy.x + 0.5f;
-            fake.y = decoy.y + 0.5f;
-            fake.angle = 0f;
+        for (RemoteCar fake : decoys) {
             int body = Color.argb(150, Color.red(colors.player), Color.green(colors.player), Color.blue(colors.player));
             drawCar(canvas, fake, body, Color.rgb(255, 226, 115), tile, originX, originY, true);
         }
