@@ -87,7 +87,7 @@ final class AvatarRenderer {
     static Bitmap bitmap(String encoded, int size, boolean bust) {
         Bitmap bitmap = Bitmap.createBitmap(Math.max(32, size), Math.max(32, size), Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-        draw(canvas, encoded, 0f, 0f, bitmap.getWidth(), bitmap.getHeight(), bust);
+        draw(canvas, decode(encoded), decodeColors(encoded), 0f, 0f, bitmap.getWidth(), bitmap.getHeight(), bust);
         return bitmap;
     }
 
