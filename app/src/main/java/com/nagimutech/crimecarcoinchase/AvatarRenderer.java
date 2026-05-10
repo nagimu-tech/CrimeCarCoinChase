@@ -11,7 +11,7 @@ import android.graphics.Shader;
 
 final class AvatarRenderer {
     static final int CATEGORY_COUNT = 10;
-    static final int[] OPTION_COUNTS = {4, 4, 6, 4, 4, 5, 4, 4, 4, 5};
+    static final int[] OPTION_COUNTS = {8, 8, 10, 8, 8, 9, 8, 8, 8, 9};
 
     private AvatarRenderer() {
     }
@@ -60,41 +60,60 @@ final class AvatarRenderer {
         canvas.translate(left, top);
         float s = Math.min(width, height);
         float cx = width / 2f;
-        float skin = 0;
         int skinColor = new int[]{
                 Color.rgb(236, 176, 124),
                 Color.rgb(139, 76, 62),
                 Color.rgb(172, 92, 47),
                 Color.rgb(162, 85, 68),
-                Color.rgb(198, 118, 58)
-        }[v[9] % 5];
+                Color.rgb(198, 118, 58),
+                Color.rgb(244, 200, 154),
+                Color.rgb(106, 62, 49),
+                Color.rgb(219, 143, 88),
+                Color.rgb(184, 112, 88)
+        }[v[9] % 9];
         int shirt = new int[]{
                 Color.rgb(118, 188, 56),
                 Color.rgb(54, 164, 211),
                 Color.rgb(245, 138, 54),
-                Color.rgb(157, 99, 218)
-        }[v[1] % 4];
+                Color.rgb(157, 99, 218),
+                Color.rgb(236, 77, 92),
+                Color.rgb(245, 202, 67),
+                Color.rgb(34, 176, 132),
+                Color.rgb(58, 70, 96)
+        }[v[1] % 8];
         int hair = new int[]{
                 Color.rgb(47, 48, 50),
                 Color.rgb(210, 93, 70),
                 Color.rgb(74, 52, 38),
                 Color.rgb(58, 130, 214),
                 Color.rgb(40, 166, 126),
-                Color.rgb(236, 121, 178)
-        }[v[2] % 6];
+                Color.rgb(236, 121, 178),
+                Color.rgb(230, 230, 226),
+                Color.rgb(146, 88, 232),
+                Color.rgb(33, 34, 38),
+                Color.rgb(246, 184, 72)
+        }[v[2] % 10];
         int eyeColor = new int[]{
                 Color.rgb(55, 55, 55),
                 Color.rgb(192, 91, 0),
                 Color.rgb(180, 145, 0),
                 Color.rgb(74, 149, 0),
-                Color.rgb(24, 150, 155)
-        }[v[5] % 5];
+                Color.rgb(24, 150, 155),
+                Color.rgb(78, 130, 225),
+                Color.rgb(98, 62, 170),
+                Color.rgb(28, 122, 86),
+                Color.rgb(215, 95, 118)
+        }[v[5] % 9];
         int glasses = new int[]{
                 Color.TRANSPARENT,
                 Color.rgb(92, 150, 42),
                 Color.rgb(38, 120, 200),
-                Color.rgb(242, 126, 0)
-        }[v[6] % 4];
+                Color.rgb(242, 126, 0),
+                Color.rgb(168, 92, 220),
+                Color.rgb(34, 38, 48),
+                Color.rgb(230, 58, 74),
+                Color.rgb(235, 220, 92)
+        }[v[6] % 8];
 
         paint.setStyle(Paint.Style.FILL);
         paint.setShader(new LinearGradient(0, 0, 0, height, Color.rgb(74, 74, 74), Color.rgb(56, 56, 56), Shader.TileMode.CLAMP));
@@ -113,12 +132,12 @@ final class AvatarRenderer {
 
         paint.setColor(skinColor);
         canvas.drawRoundRect(new RectF(cx - s * 0.07f, s * 0.58f, cx + s * 0.07f, s * 0.76f), s * 0.03f, s * 0.03f, paint);
-        drawEars(canvas, paint, cx, s, skinColor, v[8] % 4);
-        drawHead(canvas, paint, cx, s, skinColor, v[0] % 4);
-        drawHair(canvas, paint, cx, s, hair, v[2] % 6);
-        drawEyes(canvas, paint, cx, s, eyeColor, v[4] % 4);
-        drawGlasses(canvas, paint, cx, s, glasses, v[6] % 4);
-        drawNoseMouth(canvas, paint, cx, s, skinColor, v[3] % 4, v[7] % 4);
+        drawEars(canvas, paint, cx, s, skinColor, v[8] % 8);
+        drawHead(canvas, paint, cx, s, skinColor, v[0] % 8);
+        drawHair(canvas, paint, cx, s, hair, v[2] % 10);
+        drawEyes(canvas, paint, cx, s, eyeColor, v[4] % 8);
+        drawGlasses(canvas, paint, cx, s, glasses, v[6] % 8);
+        drawNoseMouth(canvas, paint, cx, s, skinColor, v[3] % 8, v[7] % 8);
 
         paint.setColor(Color.rgb(255, 208, 160));
         canvas.drawOval(cx - s * 0.055f, s * 0.675f, cx + s * 0.055f, s * 0.77f, paint);
@@ -128,10 +147,20 @@ final class AvatarRenderer {
     private static void drawHead(Canvas canvas, Paint paint, float cx, float s, int skin, int shape) {
         paint.setColor(skin);
         RectF head = new RectF(cx - s * 0.23f, s * 0.28f, cx + s * 0.23f, s * 0.66f);
-        float radius = shape == 1 ? s * 0.04f : shape == 2 ? s * 0.16f : s * 0.08f;
+        float radius = shape == 1 ? s * 0.04f : shape == 2 ? s * 0.16f : shape == 4 ? s * 0.12f : shape == 5 ? s * 0.02f : s * 0.08f;
         canvas.drawRoundRect(head, radius, radius, paint);
         if (shape == 3) {
             canvas.drawOval(cx - s * 0.2f, s * 0.25f, cx + s * 0.2f, s * 0.68f, paint);
+        } else if (shape == 6) {
+            canvas.drawOval(cx - s * 0.25f, s * 0.3f, cx + s * 0.25f, s * 0.66f, paint);
+        } else if (shape == 7) {
+            Path chin = new Path();
+            chin.moveTo(cx - s * 0.2f, s * 0.3f);
+            chin.lineTo(cx + s * 0.2f, s * 0.3f);
+            chin.lineTo(cx + s * 0.23f, s * 0.56f);
+            chin.quadTo(cx, s * 0.72f, cx - s * 0.23f, s * 0.56f);
+            chin.close();
+            canvas.drawPath(chin, paint);
         }
     }
 
@@ -142,9 +171,14 @@ final class AvatarRenderer {
         if (style > 0) {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(s * 0.014f);
-            paint.setColor(style == 1 ? Color.rgb(210, 225, 238) : style == 2 ? Color.rgb(255, 194, 58) : Color.rgb(95, 208, 225));
-            canvas.drawCircle(cx - s * 0.255f, s * 0.53f, s * 0.035f, paint);
-            canvas.drawCircle(cx + s * 0.255f, s * 0.53f, s * 0.035f, paint);
+            paint.setColor(style == 1 ? Color.rgb(210, 225, 238) : style == 2 ? Color.rgb(255, 194, 58) : style == 3 ? Color.rgb(95, 208, 225) : style == 4 ? Color.rgb(255, 130, 175) : Color.rgb(230, 230, 90));
+            if (style == 5 || style == 7) {
+                canvas.drawLine(cx - s * 0.255f, s * 0.51f, cx - s * 0.255f, s * 0.58f, paint);
+                canvas.drawLine(cx + s * 0.255f, s * 0.51f, cx + s * 0.255f, s * 0.58f, paint);
+            } else {
+                canvas.drawCircle(cx - s * 0.255f, s * 0.53f, style == 6 ? s * 0.02f : s * 0.035f, paint);
+                canvas.drawCircle(cx + s * 0.255f, s * 0.53f, style == 6 ? s * 0.02f : s * 0.035f, paint);
+            }
             paint.setStyle(Paint.Style.FILL);
         }
     }
@@ -167,17 +201,35 @@ final class AvatarRenderer {
         } else if (style == 4) {
             canvas.drawCircle(cx - s * 0.16f, s * 0.22f, s * 0.12f, paint);
             canvas.drawCircle(cx + s * 0.16f, s * 0.22f, s * 0.12f, paint);
-        } else {
+        } else if (style == 5) {
             canvas.drawArc(new RectF(cx - s * 0.26f, s * 0.18f, cx + s * 0.26f, s * 0.47f), 185, 170, true, paint);
+        } else if (style == 6) {
+            canvas.drawCircle(cx, s * 0.2f, s * 0.11f, paint);
+            canvas.drawRoundRect(new RectF(cx - s * 0.18f, s * 0.23f, cx + s * 0.18f, s * 0.36f), s * 0.06f, s * 0.06f, paint);
+        } else if (style == 7) {
+            Path wave = new Path();
+            wave.moveTo(cx - s * 0.24f, s * 0.31f);
+            wave.cubicTo(cx - s * 0.14f, s * 0.13f, cx + s * 0.03f, s * 0.39f, cx + s * 0.22f, s * 0.21f);
+            wave.lineTo(cx + s * 0.23f, s * 0.38f);
+            wave.lineTo(cx - s * 0.24f, s * 0.39f);
+            wave.close();
+            canvas.drawPath(wave, paint);
+        } else if (style == 8) {
+            canvas.drawRoundRect(new RectF(cx - s * 0.08f, s * 0.12f, cx + s * 0.08f, s * 0.42f), s * 0.04f, s * 0.04f, paint);
+            canvas.drawRoundRect(new RectF(cx - s * 0.24f, s * 0.27f, cx + s * 0.24f, s * 0.38f), s * 0.06f, s * 0.06f, paint);
+        } else {
+            for (int i = -2; i <= 2; i++) {
+                canvas.drawCircle(cx + i * s * 0.08f, s * 0.25f + Math.abs(i) * s * 0.012f, s * 0.06f, paint);
+            }
         }
     }
 
     private static void drawEyes(Canvas canvas, Paint paint, float cx, float s, int color, int expression) {
         paint.setColor(Color.WHITE);
-        if (expression == 1) {
+        if (expression == 1 || expression == 5) {
             canvas.drawOval(cx - s * 0.15f, s * 0.42f, cx - s * 0.02f, s * 0.52f, paint);
             canvas.drawOval(cx + s * 0.02f, s * 0.42f, cx + s * 0.15f, s * 0.52f, paint);
-        } else if (expression == 2) {
+        } else if (expression == 2 || expression == 6) {
             canvas.drawOval(cx - s * 0.16f, s * 0.43f, cx - s * 0.02f, s * 0.50f, paint);
             canvas.drawOval(cx + s * 0.02f, s * 0.43f, cx + s * 0.16f, s * 0.50f, paint);
         } else {
@@ -186,23 +238,39 @@ final class AvatarRenderer {
         }
         paint.setColor(color);
         float py = expression == 3 ? s * 0.48f : s * 0.465f;
-        canvas.drawRoundRect(new RectF(cx - s * 0.09f, py - s * 0.05f, cx - s * 0.04f, py + s * 0.055f), s * 0.02f, s * 0.02f, paint);
-        canvas.drawRoundRect(new RectF(cx + s * 0.04f, py - s * 0.05f, cx + s * 0.09f, py + s * 0.055f), s * 0.02f, s * 0.02f, paint);
-        if (expression == 2) {
+        float offset = expression == 4 ? s * 0.025f : expression == 5 ? -s * 0.022f : 0f;
+        float pupilRadius = expression == 6 ? s * 0.018f : s * 0.033f;
+        canvas.drawCircle(cx - s * 0.065f + offset, py, pupilRadius, paint);
+        canvas.drawCircle(cx + s * 0.065f + offset, py, pupilRadius, paint);
+        if (expression == 2 || expression == 6) {
             paint.setColor(Color.rgb(90, 58, 50));
             canvas.drawRect(cx - s * 0.17f, s * 0.405f, cx - s * 0.015f, s * 0.445f, paint);
             canvas.drawRect(cx + s * 0.015f, s * 0.405f, cx + s * 0.17f, s * 0.445f, paint);
+        } else if (expression == 7) {
+            paint.setColor(Color.rgb(90, 58, 50));
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(s * 0.012f);
+            canvas.drawArc(new RectF(cx - s * 0.17f, s * 0.36f, cx - s * 0.02f, s * 0.45f), 200, 110, false, paint);
+            canvas.drawArc(new RectF(cx + s * 0.02f, s * 0.36f, cx + s * 0.17f, s * 0.45f), 230, 110, false, paint);
+            paint.setStyle(Paint.Style.FILL);
         }
     }
 
     private static void drawGlasses(Canvas canvas, Paint paint, float cx, float s, int color, int style) {
         if (style == 0) return;
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(s * 0.022f);
+        paint.setStrokeWidth(style >= 4 ? s * 0.015f : s * 0.022f);
         paint.setColor(color);
-        canvas.drawRoundRect(new RectF(cx - s * 0.19f, s * 0.38f, cx - s * 0.02f, s * 0.54f), s * 0.04f, s * 0.04f, paint);
-        canvas.drawRoundRect(new RectF(cx + s * 0.02f, s * 0.38f, cx + s * 0.19f, s * 0.54f), s * 0.04f, s * 0.04f, paint);
+        float round = style == 5 ? s * 0.08f : s * 0.04f;
+        float top = style == 6 ? s * 0.40f : s * 0.38f;
+        float bottom = style == 6 ? s * 0.51f : s * 0.54f;
+        canvas.drawRoundRect(new RectF(cx - s * 0.19f, top, cx - s * 0.02f, bottom), round, round, paint);
+        canvas.drawRoundRect(new RectF(cx + s * 0.02f, top, cx + s * 0.19f, bottom), round, round, paint);
         canvas.drawLine(cx - s * 0.02f, s * 0.46f, cx + s * 0.02f, s * 0.46f, paint);
+        if (style == 7) {
+            canvas.drawLine(cx - s * 0.19f, s * 0.45f, cx - s * 0.25f, s * 0.42f, paint);
+            canvas.drawLine(cx + s * 0.19f, s * 0.45f, cx + s * 0.25f, s * 0.42f, paint);
+        }
         paint.setStyle(Paint.Style.FILL);
     }
 
@@ -213,22 +281,35 @@ final class AvatarRenderer {
         paint.setStrokeWidth(s * 0.018f);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setColor(Color.rgb(92, 46, 37));
-        if (mouth == 0) {
+        if (mouth == 0 || mouth == 4) {
             canvas.drawArc(new RectF(cx - s * 0.1f, s * 0.55f, cx + s * 0.06f, s * 0.65f), 20, 140, false, paint);
-        } else if (mouth == 1) {
+        } else if (mouth == 1 || mouth == 5) {
             canvas.drawArc(new RectF(cx - s * 0.1f, s * 0.56f, cx + s * 0.1f, s * 0.68f), 190, 120, false, paint);
-        } else if (mouth == 2) {
+        } else if (mouth == 2 || mouth == 6) {
             canvas.drawLine(cx - s * 0.08f, s * 0.61f, cx + s * 0.08f, s * 0.61f, paint);
         } else {
             canvas.drawArc(new RectF(cx - s * 0.08f, s * 0.56f, cx + s * 0.08f, s * 0.66f), 300, 220, false, paint);
         }
         paint.setStyle(Paint.Style.FILL);
-        if (type == 3) {
+        if (type == 1 || type == 5) {
+            paint.setColor(Color.rgb(Math.max(30, Color.red(skin) - 80), Math.max(30, Color.green(skin) - 70), Math.max(25, Color.blue(skin) - 55)));
+            canvas.drawCircle(cx - s * 0.04f, s * 0.55f, s * 0.012f, paint);
+            canvas.drawCircle(cx + s * 0.06f, s * 0.57f, s * 0.01f, paint);
+        }
+        if (type == 2 || type == 6) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(s * 0.012f);
+            paint.setColor(Color.rgb(120, 66, 52));
+            canvas.drawLine(cx - s * 0.09f, s * 0.36f, cx - s * 0.03f, s * 0.38f, paint);
+            canvas.drawLine(cx + s * 0.03f, s * 0.38f, cx + s * 0.09f, s * 0.36f, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+        if (type == 3 || type == 7) {
             paint.setColor(Color.rgb(130, 235, 250));
             Path tear = new Path();
-            tear.moveTo(cx - s * 0.26f, s * 0.5f);
-            tear.quadTo(cx - s * 0.32f, s * 0.58f, cx - s * 0.25f, s * 0.61f);
-            tear.quadTo(cx - s * 0.18f, s * 0.58f, cx - s * 0.26f, s * 0.5f);
+            tear.moveTo(cx - s * 0.17f, s * 0.5f);
+            tear.quadTo(cx - s * 0.22f, s * 0.58f, cx - s * 0.16f, s * 0.61f);
+            tear.quadTo(cx - s * 0.10f, s * 0.58f, cx - s * 0.17f, s * 0.5f);
             canvas.drawPath(tear, paint);
         }
     }

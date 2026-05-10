@@ -38,6 +38,7 @@ final class OnlineGameView extends View {
     private final float density;
     private final List<RemoteCar> players = new ArrayList<>();
     private final List<RemoteCar> police = new ArrayList<>();
+    private final List<RemoteArtifact> decoys = new ArrayList<>();
     private final List<RemoteArtifact> artifacts = new ArrayList<>();
     private final Map<String, Bitmap> bitmapIcons = new HashMap<>();
     private RectF menuRect = new RectF();
@@ -162,6 +163,8 @@ final class OnlineGameView extends View {
         updateCars(state.optJSONArray("police"), police);
         artifacts.clear();
         readArtifacts(state.optJSONArray("artifacts"));
+        decoys.clear();
+        readDecoys(state.optJSONArray("decoys"));
         invalidate();
     }
 
@@ -211,6 +214,8 @@ final class OnlineGameView extends View {
             car.invulnerableActive = item.optBoolean("invulnerableActive", false);
             car.killerActive = item.optBoolean("killerActive", false);
             car.doubleActive = item.optBoolean("doubleActive", false);
+            car.decoyActive = item.optBoolean("decoyActive", false);
+            car.turboActive = item.optBoolean("turboActive", false);
             car.iceActive = item.optBoolean("iceActive", false);
             car.avatar = item.optString("avatar", "");
         }
@@ -242,6 +247,22 @@ final class OnlineGameView extends View {
                 artifact.x = item.optInt("x", 0);
                 artifact.y = item.optInt("y", 0);
                 artifacts.add(artifact);
+            }
+        }
+    }
+
+    private void readDecoys(JSONArray array) {
+        if (array == null) {
+            return;
+        }
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject item = array.optJSONObject(i);
+            if (item != null) {
+                RemoteArtifact decoy = new RemoteArtifact();
+                decoy.type = "DECOY";
+                decoy.x = item.optInt("x", 0);
+                decoy.y = item.optInt("y", 0);
+                decoys.add(decoy);
             }
         }
     }
@@ -392,6 +413,14 @@ final class OnlineGameView extends View {
         }
         for (RemoteCar car : police) {
             drawCar(canvas, car, colors.police, Color.rgb(201, 223, 255), tile, originX, originY, false);
+        }
+        for (RemoteArtifact decoy : decoys) {
+            RemoteCar fake = new RemoteCar();
+            fake.x = decoy.x + 0.5f;
+            fake.y = decoy.y + 0.5f;
+            fake.angle = 0f;
+            int body = Color.argb(150, Color.red(colors.player), Color.green(colors.player), Color.blue(colors.player));
+            drawCar(canvas, fake, body, Color.rgb(255, 226, 115), tile, originX, originY, true);
         }
         for (RemoteCar car : players) {
             int body = car.id == playerId ? colors.player : otherPlayerColor;
@@ -919,6 +948,16 @@ final class OnlineGameView extends View {
             canvas.drawText("D", x, baseline, paint);
             x += 24f * density;
         }
+        if (car.decoyActive && x < maxX - 26f * density) {
+            paint.setColor(Color.rgb(255, 210, 105));
+            canvas.drawText("L", x, baseline, paint);
+            x += 24f * density;
+        }
+        if (car.turboActive && x < maxX - 26f * density) {
+            paint.setColor(Color.rgb(255, 95, 60));
+            canvas.drawText("T", x, baseline, paint);
+            x += 24f * density;
+        }
         if (car.iceActive && x < maxX - 26f * density) {
             paint.setColor(Color.rgb(150, 230, 255));
             canvas.drawText("I", x, baseline, paint);
@@ -994,19 +1033,24 @@ final class OnlineGameView extends View {
         } else if ("BANK".equals(artifact.type)) {
             drawBitmapIcon(canvas, "bank", x - tile * 0.3f, y - tile * 0.3f, tile * 0.6f);
         } else if ("FREEZER".equals(artifact.type) || "SHIELD".equals(artifact.type) || "PORTAL".equals(artifact.type)
-                || "KILLER".equals(artifact.type) || "CHAOS".equals(artifact.type) || "DOUBLE".equals(artifact.type) || "ICE".equals(artifact.type)) {
+                || "KILLER".equals(artifact.type) || "CHAOS".equals(artifact.type) || "DOUBLE".equals(artifact.type)
+                || "ICE".equals(artifact.type) || "DECOY".equals(artifact.type) || "TURBO".equals(artifact.type)) {
             String label = "FREEZER".equals(artifact.type) ? "F"
                     : "SHIELD".equals(artifact.type) ? "S"
                     : "PORTAL".equals(artifact.type) ? "P"
                     : "KILLER".equals(artifact.type) ? "K"
                     : "CHAOS".equals(artifact.type) ? "C"
-                    : "DOUBLE".equals(artifact.type) ? "D" : "I";
+                    : "DOUBLE".equals(artifact.type) ? "D"
+                    : "DECOY".equals(artifact.type) ? "L"
+                    : "TURBO".equals(artifact.type) ? "T" : "I";
             int color = "FREEZER".equals(artifact.type) ? Color.rgb(70, 210, 255)
                     : "SHIELD".equals(artifact.type) ? Color.rgb(77, 230, 116)
                     : "PORTAL".equals(artifact.type) ? Color.rgb(255, 174, 78)
                     : "KILLER".equals(artifact.type) ? Color.rgb(245, 70, 76)
                     : "CHAOS".equals(artifact.type) ? Color.rgb(255, 178, 62)
                     : "DOUBLE".equals(artifact.type) ? Color.rgb(72, 225, 116)
+                    : "DECOY".equals(artifact.type) ? Color.rgb(255, 210, 105)
+                    : "TURBO".equals(artifact.type) ? Color.rgb(255, 95, 60)
                     : Color.rgb(150, 230, 255);
             drawLetterArtifact(canvas, x, y, tile, label, color);
         } else if ("GHOST".equals(artifact.type)) {
@@ -1137,6 +1181,8 @@ final class OnlineGameView extends View {
         boolean invulnerableActive;
         boolean killerActive;
         boolean doubleActive;
+        boolean decoyActive;
+        boolean turboActive;
         boolean iceActive;
         String avatar = "";
     }

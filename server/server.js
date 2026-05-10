@@ -19,6 +19,8 @@ const ARTIFACT_VISIBLE_MS = 15000;
 const FREEZE_MS = 20000;
 const SHIELD_MS = 20000;
 const GHOST_MS = 7000;
+const DECOY_MS = 12000;
+const TURBO_MS = 5000;
 
 const rooms = new Map();
 
@@ -398,7 +400,7 @@ function updateRoom(room, delta, now) {
   if (!room.started || room.over) return;
   updateArtifacts(room, now);
   for (const player of room.players) {
-    updatePlayer(room, player, delta);
+    updatePlayer(room, player, delta, now);
     collect(room, player);
     checkExitPortal(room, player, now);
   }
@@ -472,7 +474,7 @@ function updateArtifacts(room, now) {
   }
 }
 
-function updatePlayer(room, player, delta) {
+function updatePlayer(room, player, delta, now) {
   if (player.nextDir === "NONE") {
     player.dir = "NONE";
     return;
@@ -484,7 +486,7 @@ function updatePlayer(room, player, delta) {
   if (atCenter(player) && canMove(room.grid, player, player.nextDir)) {
     player.dir = player.nextDir;
   }
-  move(room, player, playerSpeed(room.difficulty), delta);
+  move(room, player, playerSpeed(player, now), delta);
 }
 
 function updatePolice(room, police, delta, now) {
@@ -493,7 +495,7 @@ function updatePolice(room, police, delta, now) {
     return;
   }
   recoverIfInWall(room, police);
-  const target = nearestPlayer(room, police);
+  const target = policeTarget(room, police, now);
   if (atCenter(police)) {
     police.x = Math.round(police.x - 0.5) + 0.5;
     police.y = Math.round(police.y - 0.5) + 0.5;
@@ -654,15 +656,23 @@ function applyArtifact(room, player, artifact) {
   }
   if (artifact.type === "DOUBLE") {
     player.doubleUntil = Math.max(player.doubleUntil || 0, Date.now()) + 20000;
+    return;
+  }
+  if (artifact.type === "DECOY") {
+    player.decoyUntil = Math.max(player.decoyUntil || 0, Date.now()) + DECOY_MS;
+    player.decoyX = Math.round(player.x - 0.5) + 0.5;
+    player.decoyY = Math.round(player.y - 0.5) + 0.5;
+    return;
+  }
+  if (artifact.type === "TURBO") {
+    player.turboUntil = Math.max(player.turboUntil || 0, Date.now()) + TURBO_MS;
   }
 }
 
 function collectPoliceArtifact(room, police, now) {
-  const x = Math.round(police.x - 0.5);
-  const y = Math.round(police.y - 0.5);
   for (let i = room.artifacts.length - 1; i >= 0; i--) {
     const artifact = room.artifacts[i];
-    if (artifact.type === "ICE" && artifact.x === x && artifact.y === y) {
+    if (artifact.type === "ICE" && Math.hypot(police.x - (artifact.x + 0.5), police.y - (artifact.y + 0.5)) <= 0.54) {
       police.iceUntil = now + 20000;
       room.artifacts.splice(i, 1);
       return;
@@ -711,7 +721,7 @@ function spawnRandomArtifact(room, now) {
 
 function spawnProfArtifact(room, now) {
   const target = room.players[Math.floor(Math.random() * room.players.length)];
-  const types = ["KILLER", "CHAOS", "DOUBLE", "ICE"];
+  const types = ["KILLER", "CHAOS", "DOUBLE", "ICE", "DECOY", "TURBO"];
   const type = types[Math.floor(Math.random() * types.length)];
   const candidates = type === "ICE" ? emptyArtifactCandidates(room, target) : artifactCandidates(room, target, true);
   if (candidates.length === 0) return;
@@ -865,6 +875,10 @@ function beginNextStage(room, now) {
     player.ghostUntil = 0;
     player.killerUntil = 0;
     player.doubleUntil = 0;
+    player.decoyUntil = 0;
+    player.decoyX = 0;
+    player.decoyY = 0;
+    player.turboUntil = 0;
     player.invulnerableUntil = 0;
   }
   room.police = generated.policeStarts.slice(0, difficultyPoliceCount(room.difficulty))
@@ -963,6 +977,18 @@ function nearestPlayer(room, police) {
   return room.players.reduce((best, player) => {
     return Math.hypot(player.x - police.x, player.y - police.y) < Math.hypot(best.x - police.x, best.y - police.y) ? player : best;
   }, room.players[0]);
+}
+
+function policeTarget(room, police, now) {
+  const decoys = room.players
+    .filter((player) => now < (player.decoyUntil || 0))
+    .map((player) => ({ x: player.decoyX || player.x, y: player.decoyY || player.y }));
+  if (decoys.length > 0) {
+    return decoys.reduce((best, decoy) => {
+      return Math.hypot(decoy.x - police.x, decoy.y - police.y) < Math.hypot(best.x - police.x, best.y - police.y) ? decoy : best;
+    }, decoys[0]);
+  }
+  return nearestPlayer(room, police);
 }
 
 function distanceAfter(actor, dir, target) {
@@ -1103,7 +1129,7 @@ function countWealth(grid) {
 }
 
 function car(id, x, y, dir) {
-  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, score: 0, bonusTotal: 0, banknotes: 0, invulnerableUntil: 0, shieldUntil: 0, ghostUntil: 0, killerUntil: 0, doubleUntil: 0, iceUntil: 0, avatar: "" };
+  return { id, x, y, dir, nextDir: "NONE", angle: 0, damage: 0, score: 0, bonusTotal: 0, banknotes: 0, invulnerableUntil: 0, shieldUntil: 0, ghostUntil: 0, killerUntil: 0, doubleUntil: 0, decoyUntil: 0, decoyX: 0, decoyY: 0, turboUntil: 0, iceUntil: 0, avatar: "" };
 }
 
 function mapSize(difficulty) {
@@ -1119,8 +1145,8 @@ function difficultyPoliceCount(difficulty) {
   return 1;
 }
 
-function playerSpeed() {
-  return 3.35;
+function playerSpeed(player, now) {
+  return now < (player.turboUntil || 0) ? 4.85 : 3.35;
 }
 
 function policeSpeed(difficulty) {
@@ -1182,6 +1208,8 @@ function serializeRoom(room, playerId) {
       ghostActive: Date.now() < (player.ghostUntil || 0),
       killerActive: Date.now() < (player.killerUntil || 0),
       doubleActive: Date.now() < (player.doubleUntil || 0),
+      decoyActive: Date.now() < (player.decoyUntil || 0),
+      turboActive: Date.now() < (player.turboUntil || 0),
       invulnerableActive: Date.now() < (player.invulnerableUntil || 0) && Date.now() >= (player.shieldUntil || 0),
       avatar: player.avatar || "",
     })),
@@ -1197,6 +1225,12 @@ function serializeRoom(room, playerId) {
       x: artifact.x,
       y: artifact.y,
     })),
+    decoys: room.players
+      .filter((player) => Date.now() < (player.decoyUntil || 0))
+      .map((player) => ({
+        x: Math.round((player.decoyX || player.x) - 0.5),
+        y: Math.round((player.decoyY || player.y) - 0.5),
+      })),
     banknoteEventId: room.banknoteEventId,
     banknoteReward: 0,
     score: viewer ? viewer.score : 0,

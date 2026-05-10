@@ -14,6 +14,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
@@ -471,6 +472,9 @@ public final class MainActivity extends Activity implements GameView.Listener {
     private void showAvatarEditorDialog() {
         int[] values = AvatarRenderer.decode(prefs.getString(GameConfig.PREF_AVATAR, "0,0,0,0,0,0,0,0,0,0"));
         int[] selected = {0};
+        DisplayMetrics metrics = getResources().getDisplayMetrics();
+        int dialogWidth = Math.min(metrics.widthPixels - dp(32), dp(540));
+        int optionWidth = Math.max(dp(116), (dialogWidth - dp(66)) / 2);
         LinearLayout rootPanel = new LinearLayout(this);
         rootPanel.setOrientation(LinearLayout.VERTICAL);
         rootPanel.setBackgroundColor(Color.rgb(12, 28, 32));
@@ -497,7 +501,7 @@ public final class MainActivity extends Activity implements GameView.Listener {
         rootPanel.addView(header);
 
         AvatarView preview = new AvatarView(this, values);
-        rootPanel.addView(preview, new LinearLayout.LayoutParams(-1, dp(290)));
+        rootPanel.addView(preview, new LinearLayout.LayoutParams(-1, dp(250)));
 
         HorizontalScrollView tabsScroll = new HorizontalScrollView(this);
         tabsScroll.setHorizontalScrollBarEnabled(false);
@@ -507,11 +511,13 @@ public final class MainActivity extends Activity implements GameView.Listener {
         rootPanel.addView(tabsScroll, new LinearLayout.LayoutParams(-1, dp(58)));
 
         ScrollView optionsScroll = new ScrollView(this);
+        optionsScroll.setFillViewport(false);
+        optionsScroll.setClipToPadding(false);
         LinearLayout optionsPanel = new LinearLayout(this);
         optionsPanel.setOrientation(LinearLayout.VERTICAL);
-        optionsPanel.setPadding(dp(14), dp(10), dp(14), dp(18));
+        optionsPanel.setPadding(dp(14), dp(10), dp(14), dp(34));
         optionsScroll.addView(optionsPanel);
-        rootPanel.addView(optionsScroll, new LinearLayout.LayoutParams(-1, dp(360)));
+        rootPanel.addView(optionsScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         String[] tabIcons = {"♟", "◡", "〰", "☻", "◉", "●", "▢", "◌", "○", "▣"};
         String[] sectionTitles = {"Форма головы", "Тело", "Причёска", "Рот", "Выражение лица", "Цвет глаз", "Очки", "Тип лица", "Серьги", "Цвет кожи"};
@@ -552,8 +558,8 @@ public final class MainActivity extends Activity implements GameView.Listener {
                     rebuild[0].run();
                 });
                 GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-                lp.width = (getResources().getDisplayMetrics().widthPixels - dp(50)) / 2;
-                lp.height = dp(138);
+                lp.width = optionWidth;
+                lp.height = dp(126);
                 lp.setMargins(dp(5), dp(6), dp(5), dp(10));
                 grid.addView(optionView, lp);
             }
@@ -565,6 +571,10 @@ public final class MainActivity extends Activity implements GameView.Listener {
         close.setOnClickListener(v -> dialog.dismiss());
         done.setOnClickListener(v -> dialog.dismiss());
         dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setLayout(dialogWidth, Math.min(metrics.heightPixels - dp(42), dp(760)));
+        }
     }
 
     private void showColorDialog(String target) {
@@ -1183,6 +1193,8 @@ public final class MainActivity extends Activity implements GameView.Listener {
         addHelpArtifact(page, "CHAOS", "C: Изменение мира", "20 секунд полиция убегает от преступников.");
         addHelpArtifact(page, "DOUBLE", "D: Двойное богатство", "20 секунд монеты дают 2 богатства.");
         addHelpArtifact(page, "ICE", "I: Лёд", "Берёт только полиция: машинка скользит до поворота.");
+        addHelpArtifact(page, "DECOY", "L: Ложный след", "12 секунд полиция гонится за приманкой вместо преступника.");
+        addHelpArtifact(page, "TURBO", "T: Турбо", "5 секунд машинка преступника едет быстрее.");
 
         new AlertDialog.Builder(this)
                 .setView(scroll)
@@ -1944,11 +1956,12 @@ public final class MainActivity extends Activity implements GameView.Listener {
             }
             String label = "FREEZER".equals(icon) ? "F" : "SHIELD".equals(icon) ? "S" : "GHOST".equals(icon) ? "G"
                     : "PORTAL".equals(icon) ? "P" : "KILLER".equals(icon) ? "K" : "CHAOS".equals(icon) ? "C"
-                    : "DOUBLE".equals(icon) ? "D" : "I";
+                    : "DOUBLE".equals(icon) ? "D" : "DECOY".equals(icon) ? "L" : "TURBO".equals(icon) ? "T" : "I";
             int color = "FREEZER".equals(icon) ? Color.rgb(70, 210, 255) : "SHIELD".equals(icon) ? Color.rgb(77, 230, 116)
                     : "GHOST".equals(icon) ? Color.rgb(185, 125, 255) : "PORTAL".equals(icon) ? Color.rgb(255, 174, 78)
                     : "KILLER".equals(icon) ? Color.rgb(245, 70, 76) : "CHAOS".equals(icon) ? Color.rgb(255, 178, 62)
-                    : "DOUBLE".equals(icon) ? Color.rgb(72, 225, 116) : Color.rgb(150, 230, 255);
+                    : "DOUBLE".equals(icon) ? Color.rgb(72, 225, 116) : "DECOY".equals(icon) ? Color.rgb(255, 210, 105)
+                    : "TURBO".equals(icon) ? Color.rgb(255, 95, 60) : Color.rgb(150, 230, 255);
             paint.setColor(color);
             canvas.drawCircle(cx, cy, r, paint);
             paint.setTextAlign(Paint.Align.CENTER);
